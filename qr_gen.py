@@ -34,14 +34,16 @@ class QrCfg(config.Cfg):
 
     # single qr code params:
     qr_image_generator = 'qrcode' # 'google'
-    size_pix = 'auto' # calculate as max to fit in grid cell
+    qr_size_pix = -1 # -1 = auto
+    qr_module_size = -1 # auto, dont't set it here
+    qr_corners_distance_mm = -1 # distance between corners (black squares); -1 = auto (by grid)
     ecc_level:str = 'H'
     text_area_height = 50
     text_font = cv.FONT_HERSHEY_SIMPLEX
     text_font_size = 32
     text_font_thickness = 3
     sequence_start = 1000000
-    qr_white_margin = 10
+    qr_white_margin = 4
     img_width_modules = 21+2*qr_white_margin # if ecc_level='H' then img is 21*21 modules + 2 * border(=4)
     qr_border = True # make border for single qr code
 
@@ -58,7 +60,7 @@ class QRgen:
         qr = qrcode.QRCode(
             version=1,
             error_correction=qrcode.constants.ERROR_CORRECT_H,
-            box_size=int(QrCfg.size_pix/QrCfg.img_width_modules),  # 21 - modules of version 1+ borders (2*4)
+            box_size=QrCfg.qr_module_size,
             border=QrCfg.qr_white_margin,
         )
         qr.add_data(data)
@@ -69,10 +71,12 @@ class QRgen:
         # cv.imwrite('../tmp/test_cv0.png',img0)
         cv_img = cv.cvtColor( img0,cv.COLOR_GRAY2BGR) #,img2)
         # cv.imwrite('../tmp/test_cv.png',cv_img)
+        if QrCfg.qr_border:
+            cv.rectangle(cv_img,(0,0),(cv_img.shape[0]-1,cv_img.shape[1]-1),(0,0,0),1)
         return cv_img
 
     def _gen_qr_by_google(self, data:str):
-        size = str(QrCfg.size_pix)
+        size = str(QrCfg.qr_size_pix)
         ecc_level = 'H' #  we always need maximum ecc level (30%)
         url = f"https://chart.googleapis.com/chart?chs={size}x{size}&cht=qr&chl={data}&chld={ecc_level}"
         response = requests.get(url)
@@ -99,7 +103,7 @@ class QRgen:
 
     def _gen_txt_img(self, txt:str):
         textsize = cv.getTextSize(txt, QrCfg.text_font, 1, QrCfg.text_font_thickness)[0]
-        txt_img = np.ones((QrCfg.text_area_height, QrCfg.size_pix, 3),dtype='uint8')
+        txt_img = np.ones((QrCfg.text_area_height, QrCfg.qr_size_pix, 3), dtype='uint8')
         txt_img *= 255
         # get coords based on boundary
         textX = int( (txt_img.shape[1] - textsize[0]) / 2)
@@ -132,21 +136,31 @@ class PageGrid:
         self.img = np.ones((QrCfg.horz_pixels, QrCfg.vert_pixels, 3), dtype=np.uint8) * 255
         self.cell_w = int(QrCfg.horz_pixels / QrCfg.grid_cols)
         self.cell_h = int(QrCfg.vert_pixels / QrCfg.grid_rows)
-        QrCfg.size_pix = QRgen.even_size_pix( self.calculate_size_pix() )
-
+        QrCfg.qr_size_pix = self.calculate_qr_size_pix()
+        # set qr_box_size if it is in auto mode
+        if QrCfg.qr_module_size == -1: # auto
+            QrCfg.qr_module_size = int(QrCfg.qr_size_pix / QrCfg.img_width_modules)
         self._add_cell_images(get_image_func)
-
         if QrCfg.grid_border:
             self._add_cell_borders()
         self.add_adjustments()
 
-    def calculate_size_pix(self):
-        img_space_w = int(QrCfg.horz_pixels / QrCfg.grid_cols)
-        img_space_w -= QrCfg.image_rotation if QrCfg.text_area_height else 0
-        img_space_h = int(QrCfg.vert_pixels / QrCfg.grid_rows)
-        img_space_h -= QrCfg.image_rotation if 0 else QrCfg.text_area_height
-        return min(img_space_w, img_space_h) - 1
-
+    def calculate_qr_size_pix(self):
+        if QrCfg.qr_corners_distance_mm != -1:
+            modules_cnt = 21 # we only use H level of ecc
+            # qr_corners_dist_pix = int(QrCfg.horz_pixels/QrCfg.sheet_width_mm)*QrCfg.qr_corners_distance_mm
+            qr_corners_dist_pix = int(QrCfg.qr_corners_distance_mm * QrCfg.printer_dpi / 25.4) # inch mm
+            QrCfg.qr_module_size = int(qr_corners_dist_pix / modules_cnt)
+            size_pix = QrCfg.qr_module_size * QrCfg.img_width_modules
+            return size_pix
+        else: # qr_corners_distance is not set in Cfg, so calculate size_pix based on grid_cols,grid_rows
+            img_space_w = int(QrCfg.horz_pixels / QrCfg.grid_cols)
+            img_space_w -= QrCfg.image_rotation if QrCfg.text_area_height else 0
+            img_space_h = int(QrCfg.vert_pixels / QrCfg.grid_rows)
+            img_space_h -= QrCfg.image_rotation if 0 else QrCfg.text_area_height
+            size_pix = min(img_space_w, img_space_h) - 1
+            size_pix = QRgen.even_size_pix(size_pix)
+            return size_pix
 
     def _cell_lu(self, r, c):
         # left-upper corner of the cell
@@ -223,10 +237,14 @@ if __name__ == '__main__':
     # QrCfg.size_pix=2000
     # qrgen_test()
 
-    QrCfg.grid_cols = 2
-    QrCfg.grid_rows = 2
+    QrCfg.grid_cols = 1
+    QrCfg.grid_rows = 1
+    QrCfg.qr_border = True
+    QrCfg.grid_border = False
+    QrCfg.qr_corners_distance_mm = 55
+
     # QrCfg.debug = 2
     # # QrCfg.load_json('../configs/qr_grid_11_4.json')
     generate_grid()
-    # # QrCfg.save_json('../configs/qr_grid_11_4.json')
+    QrCfg.save_json('../configs/qr_grid_test1.json')
 

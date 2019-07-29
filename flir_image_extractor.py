@@ -38,9 +38,7 @@ class FlirImageExtractor:
         self.rgb_image_np = None
         self.thermal_image_np = None
 
-    pass
-
-    def process_image(self, flir_img_filename):
+    def process_image(self, flir_img_filename, skip_thermal=False):
         """
         Given a valid image path, process the file: extract real thermal values
         and a thumbnail for comparison (generally thumbnail is on the visible spectre)
@@ -61,7 +59,8 @@ class FlirImageExtractor:
             self.fix_endian = False
 
         self.rgb_image_np = self.extract_embedded_image()
-        self.thermal_image_np = self.extract_thermal_image()
+        if not skip_thermal:
+            self.thermal_image_np = self.extract_thermal_image()
 
     def get_image_type(self):
         """
@@ -240,8 +239,8 @@ class FlirImageExtractor:
             print("DEBUG Saving RGB image to:{}".format(image_filename))
             print("DEBUG Saving Thermal image to:{}".format(thermal_filename))
 
-        img_visual.save(image_filename)
-        img_thermal.save(thermal_filename)
+        img_visual.log_image(image_filename)
+        img_thermal.log_image(thermal_filename)
 
     def export_thermal_to_csv(self, csv_filename):
         """

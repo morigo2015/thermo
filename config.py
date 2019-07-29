@@ -27,7 +27,8 @@ class Cfg(metaclass=MetaCfg): # user configurations will be derived from this cl
         folder = os.path.split(fname_path)[0]
         assert   os.path.isdir(folder) | (not folder), f'folder {folder} does not exist'
         with open(fname_path,'w') as file:
-            json.dump(cls.cfg_dict(),file)
+            json.dump(cls.cfg_dict(),file,indent=4)
+        print(f'configuration {cls.__name__} saved to file {fname_path}')
 
     @classmethod
     def load_json(cls,fname_path):
