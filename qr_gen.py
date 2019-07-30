@@ -1,8 +1,5 @@
 import requests
 import datetime
-import os
-import json
-import collections
 import numpy as np
 import cv2 as cv
 import qrcode # external lib for qr generation (alternative to using chart.google.com)

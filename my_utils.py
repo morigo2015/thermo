@@ -1,13 +1,7 @@
 import os
-import shutil
-import glob
 import math
 import sys
-import numpy as np
 import cv2 as cv
-import qr_read
-
-import colors
 
 inp_folder = f'../tmp'  # f'../data/calibr/att_3/lbl_3inch/visual/30' #
 inp_mask = f'test90.jpg'
@@ -26,9 +20,12 @@ class Debug:
         cls.verbose = verbose
 
     @classmethod
-    def log_image(cls, img_name):
+    def log_image(cls, img_name, image=None):
         save_file_name = f'{cls.res_folder}/{os.path.basename(cls.fname_path)[:-4]}_{img_name}.jpg'
-        img = sys._getframe().f_back.f_locals[img_name]
+        if image is None:
+            img = sys._getframe().f_back.f_locals[img_name]
+        else:
+            img = image
         cv.imwrite(save_file_name, img)
         if cls.verbose:
             print(f'{img_name} (shape={img.shape})saved to {save_file_name}')
@@ -38,9 +35,9 @@ class KeyPoint:
     def __init__(self, size=None, xy=None, x=None, y=None, blob_detector_keypoint=None, ):
         if blob_detector_keypoint is not None:
             # super().__init__(keypoint['pt'][0],keypoint['pt'][1])
-            self.x = blob_detector_keypoint.pt[0]
-            self.y = blob_detector_keypoint.pt[1]
-            self.size = blob_detector_keypoint.size
+            self.x = int(blob_detector_keypoint.pt[0])
+            self.y = int(blob_detector_keypoint.pt[1])
+            self.size = int(blob_detector_keypoint.size)
         elif size is not None and xy is not None:
             # super().__init__(xy[0],xy[1])
             self.x = xy[0]
@@ -56,7 +53,7 @@ class KeyPoint:
                             f'keypoint={blob_detector_keypoint},size={size},xy={xy},x={x},y={y}) failed')
 
     def __repr__(self):
-        return f'{self.__class__.__name__}({self.size},({self.x},{self.y}))'
+        return f'{self.__class__.__name__}({int(self.size)},({int(self.x)},{int(self.y)}))'
 
     def __str__(self):
         return f'({int(self.size)},({int(self.x)},{int(self.y)}))'
@@ -85,7 +82,8 @@ class KeyPointList:
             self._lst = key_points_list
         else:
             raise Exception(f'{self.__class__.__name__}.__init__('
-                            f'key_points_list={key_points_list},blob_detector_keypoints_list={blob_detector_keypoints_list}) failed')
+                            f'key_points_list={key_points_list},'
+                            f'blob_detector_keypoints_list={blob_detector_keypoints_list}) failed')
 
     def __repr__(self):
         return f'{self.__class__.__name__}({",".join([str(item) for item in self._lst])})'
@@ -132,4 +130,5 @@ class MyMath:
 
 if __name__ == '__main__':
     # KeyPoint.test()
-    KeyPointList.test()
+    # KeyPointList.test()
+    pass
