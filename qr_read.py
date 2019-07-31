@@ -22,8 +22,136 @@ Point = collections.namedtuple('Point', 'x, y')
 
 class Cfg(config.Cfg):
     min_blob_diameter = 10  # minimal size (diameter) of blob
-    max_relative_delta = 0.2  # default for approx comparison
-    radius_multiplyer = 1.7  # increase radius of qr_acnhor for qr_area ****
+    size_tolerance = 1  # default for approx comparison of sizes
+    distance_tolerance = 0.3  # default for approx comparison of sizes
+    angle_tolerance = 10  # how many degrees from 90' to treat angle as right(90')
+    # dist between big square centers = 14; additional modules 2*4(border)+2*3.5(half of big square)+2(safety)=
+    stretch_ratio = (14 + 2 * 4 + 2 * 3.5 + 2) / 14
+    use_otsu_threshold = False
+
+
+class QrAnchorList:
+    def __init__(self, image):
+        self.image = image
+        self.keypoints = self.get_blob_keypoints(image)
+        self.qr_anchor_list = self.keypoints_2_qr_anchors()  # qr_anchor - set of 3 keypoints for 3 big qr_code quadrates
+        self.draw_all_anchors()
+
+    @staticmethod
+    def draw_anchor(image, anchor, label):
+        img = cv.cvtColor(image, cv.COLOR_GRAY2BGR)
+        for kp in anchor:
+            cv.circle(img, (kp.x, kp.y), kp.size, colors.BGR_RED, 1)
+        Debug.log_image(label, img)
+
+    def draw_all_anchors(self):
+        for i in range(len(self.qr_anchor_list)):
+            self.draw_anchor(self.image,self.qr_anchor_list[i],f'anchor_{i}')
+
+    def get_blob_keypoints(self, image):
+        # input image --> list of blob keypoints
+        params = cv.SimpleBlobDetector_Params()
+        # Filter by Area.
+        params.filterByArea = True
+        params.minArea = MyMath.circle_area_by_diameter(Cfg.min_blob_diameter)
+
+        # Set up the detector
+        detector = cv.SimpleBlobDetector_create(params)
+        # Detect blobs
+        keypoints = detector.detect(image)
+        blob_keypoints = KeyPointList(blob_detector_keypoints_list=keypoints)
+        print('blob detector:', blob_keypoints)
+
+        # Draw detected blobs as red circles.
+        # cv2.DRAW_MATCHES_FLAGS_DRAW_RICH_KEYPOINTS ensures the size of the circle corresponds to the size of blob
+        im_with_keypoints = cv.drawKeypoints(image, keypoints, np.array([]), colors.BGR_BLUE,
+                                             cv.DRAW_MATCHES_FLAGS_DRAW_RICH_KEYPOINTS)
+        Debug.log_image('im_with_keypoints')
+        return blob_keypoints
+
+    def __repr__(self):
+        item_lst = '\n\t' + '\n\t'.join([f'({item[0]}, {item[1]}, {item[2]})' for item in self.qr_anchor_list])
+        # if not item_lst:
+        #     item_lst = '<empty>'
+        return f'{self.__class__.__name__}[{len(self.qr_anchor_list)}:{item_lst}'
+
+    def __iter__(self):
+        for elem in self.qr_anchor_list:
+            yield elem
+
+    def keypoints_2_qr_anchors(self):
+        print('kp2anchors, before', self.keypoints)
+        qr_anchors = []
+        for kp in self.keypoints:
+            for kp1 in self.keypoints:
+                if kp1 is kp:
+                    continue
+                for kp2 in self.keypoints:
+                    if kp2 is kp or kp2 is kp1:
+                        continue
+                    if not MyMath.approx_equal(kp.size, kp1.size, Cfg.size_tolerance):
+                        continue
+                    if not MyMath.approx_equal(kp.size, kp2.size, Cfg.size_tolerance):
+                        continue
+
+                    # check if (kp1,kp,kp2) is right (90') triangle.
+                    if not abs(abs(kp.angle(kp1, kp2)) - 90) < Cfg.angle_tolerance:
+                        continue
+
+                    # check if |kp,kp1| ~~ |kp,kp2|
+                    if not MyMath.approx_equal(kp.distance(kp1), kp.distance(kp2), Cfg.distance_tolerance):
+                        continue
+
+                    if not qr_anchors.count((kp, kp2, kp1)) == 0:
+                        continue
+
+                    print('append: ', kp, kp1, kp2)
+                    qr_anchors.append((kp, kp1, kp2))
+
+        print(f'found {len(qr_anchors)} anchors:', qr_anchors)
+        return qr_anchors
+
+
+class QrArea:
+
+    def __init__(self, image, qr_anchor):
+        self.image = image
+        self.qr_anchor = qr_anchor
+
+        # find qr_area corners:
+        kp, kp1, kp2 = qr_anchor
+        kp4 = kp.find_4th_corner(kp1, kp2)  # 3 squares --> 4th square
+        qr_area = KeyPoint.stretch(kp1, kp, kp2, kp4, Cfg.stretch_ratio)
+        self.qr_area_keypoints = KeyPoint.fit_to_shape(qr_area, self.image.shape)
+
+        # Extract subregion
+        self.qr_area = KeyPoint.getSubImage(self.qr_area_keypoints, self.image)
+        Debug.log_image('qr_area_aligned', self.qr_area)
+
+        if Cfg.use_otsu_threshold:
+            blur = cv.GaussianBlur(self.qr_area, (5, 5), 0)
+            ret, self.finished = cv.threshold(blur, 0, 255, cv.THRESH_BINARY + cv.THRESH_OTSU)
+        else:
+            self.finished = self.qr_area # just to test
+        Debug.log_image('thresh_finished', self.finished)
+
+    def __repr__(self):
+        return f'{self.__class__.__name__}({self.qr_anchor},c=({self.center.x},{self.center.y}),r={self.radius}))'
+
+    def draw_qr_area(self,image0,label):
+        image = cv.cvtColor(image0,cv.COLOR_GRAY2BGR)
+        for kp in self.qr_anchor:
+            cv.circle(image, (kp.x, kp.y), int(kp.size / 2), colors.BGR_GREEN, 1)
+
+        # cv.circle(img_qr_area, (self.center.x, self.center.y), self.radius, colors.BGR_GREEN, 1)
+        qr_area_contour = np.array([(kp.x, kp.y) for kp in self.qr_area_keypoints], dtype=np.int32)
+
+        # convert qr_area_corners to cv.Box2D: ( (center_x,center_y), (width,height), angle of rotation)
+        rect = cv.minAreaRect(qr_area_contour)  # get Box2D for rotated rectangle
+        box = cv.boxPoints(rect)
+        box = np.int0(box)
+        cv.drawContours(image, [box], 0, colors.BGR_RED, 2)
+        Debug.log_image(label,image)
 
 
 class QrMark:
@@ -61,136 +189,16 @@ class QrMarkList:
         # _, img2 = cv.threshold(img2, 127, 255, cv.THRESH_BINARY)
         self.qr_marks = [QrMark(pyzbar_obj) for pyzbar_obj in pyzbar.decode(img2)]
 
-    def draw_boxes(self, color=colors.BGR_GREEN):
+    def draw_boxes(self, image, color=colors.BGR_GREEN):
         for mark in self.qr_marks:
-            mark.draw_box(self.image, color)
+            mark.draw_box(image, color)
 
-    def draw_polygons(self, color=colors.BGR_BLUE):
+    def draw_polygons(self, image, color=colors.BGR_BLUE):
         for mark in self.qr_marks:
-            mark.draw_polygon(self.image, color)
+            mark.draw_polygon(image, color)
 
     def __repr__(self):
         return f'{self.__class__.__name__}[{",".join([str(m.code) for m in self.qr_marks])}]'
-
-
-class QrAnchorList:
-    def __init__(self, image):
-        self.image = image
-        self.keypoints = self.get_blob_keypoints(image)
-        self.qr_anchor_list = self.keypoints_2_qr_anchors()  # qr_anchor - set of 3 keypoints for 3 big qr_code quadrates
-
-    def get_blob_keypoints(self, image):
-        # input image --> list of blob keypoints
-        params = cv.SimpleBlobDetector_Params()
-        # Filter by Area.
-        params.filterByArea = True
-        params.minArea = MyMath.circle_area_by_diameter(Cfg.min_blob_diameter)
-
-        # Set up the detector
-        detector = cv.SimpleBlobDetector_create(params)
-        # Detect blobs
-        keypoints = detector.detect(image)
-        blob_keypoints = KeyPointList(blob_detector_keypoints_list=keypoints)
-        print('blob detector:', blob_keypoints)
-
-        # Draw detected blobs as red circles.
-        # cv2.DRAW_MATCHES_FLAGS_DRAW_RICH_KEYPOINTS ensures the size of the circle corresponds to the size of blob
-        im_with_keypoints = cv.drawKeypoints(image, keypoints, np.array([]), colors.BGR_BLUE,
-                                             cv.DRAW_MATCHES_FLAGS_DRAW_RICH_KEYPOINTS)
-        Debug.log_image('im_with_keypoints')
-        return blob_keypoints
-
-    def __repr__(self):
-        item_lst = '\n\t' + '\n\t'.join([f'({item[0]}, {item[1]}, {item[2]})' for item in self.qr_anchor_list])
-        # if not item_lst:
-        #     item_lst = '<empty>'
-        return f'{self.__class__.__name__}[{len(self.qr_anchor_list)}:{item_lst}'
-
-    def __iter__(self):
-        for elem in self.qr_anchor_list:
-            yield elem
-
-    def keypoints_2_qr_anchors(self):
-        MyMath.set_max_relative_delta(Cfg.max_relative_delta)
-        print('kp2anchors, before', self.keypoints)
-        qr_anchors = []
-        for kp in self.keypoints:
-            for kp1 in self.keypoints:
-                if kp1 is kp:
-                    continue
-                for kp2 in self.keypoints:
-                    if kp2 is kp or kp2 is kp1:
-                        continue
-                    # print('internal: ', kp, kp1, kp2)
-                    if not (MyMath.approx_equal(kp.size, kp1.size) and MyMath.approx_equal(kp.size, kp2.size)):
-                        continue
-                    # print('size check: ', kp, kp1, kp2)
-
-                    # check if (kp1,kp,kp2) is right (90') triangle.
-                    # conditions: |kp,kp1|~~|kp,kp2| and |kp,kp1|*sqrt(2)~~|kp1,kp2|
-                    if not MyMath.approx_equal(kp.distance(kp1), kp.distance(kp2)):
-                        continue
-                    if not MyMath.approx_equal(kp.distance(kp1) * math.sqrt(2), kp1.distance(kp2)):
-                        continue
-
-                    if not qr_anchors.count((kp, kp2, kp1)) > 0:
-                        print('append: ', kp, kp1, kp2)
-                        qr_anchors.append((kp, kp1, kp2))
-
-        print(f'found {len(qr_anchors)} anchors:', qr_anchors)
-        return qr_anchors
-
-
-class QrArea:
-
-    def __init__(self, image, qr_anchor):
-        self.image = image
-        self.qr_anchor = qr_anchor
-        self.center = KeyPoint(size=0,
-                               x=int(mean([kp.x for kp in self.qr_anchor])),
-                               y=int(mean([kp.y for kp in self.qr_anchor])))
-        self.radius = int(max([self.center.distance(kp) for kp in qr_anchor]))
-        self.radius = int(self.radius * Cfg.radius_multiplyer)
-        print('QrArea init;', self)
-        self.draw_qr_area()
-
-        image_copy = self.image.copy()
-        image_copy = cv.rectangle(image_copy, (self.center.x - self.radius, self.center.y - self.radius),
-                                  (self.center.x + self.radius, self.center.y + self.radius), colors.BGR_RED, 1)
-        Debug.log_image('image_before_roi', image_copy)
-        self.qr_roi = self.image[self.center.x - self.radius:self.center.x + self.radius,
-                      self.center.y - self.radius:self.center.y + self.radius]
-        Debug.log_image('qr_roi', self.qr_roi)
-
-        blur = cv.GaussianBlur(self.qr_roi, (5, 5), 0)
-        ret, self.thresh_otsu = cv.threshold(blur, 0, 255, cv.THRESH_BINARY + cv.THRESH_OTSU)
-        Debug.log_image('thresh_otsu', self.thresh_otsu)
-
-        ret2, self.image_thresholded = cv.threshold(image, ret, 255, cv.THRESH_BINARY)
-        Debug.log_image('image_thresholded', self.image_thresholded)
-
-        self.mask = np.zeros(self.image_thresholded.shape, dtype=np.uint8)
-        self.mask[self.center.x - self.radius:self.center.x + self.radius,
-        self.center.y - self.radius:self.center.y + self.radius] = 255
-        Debug.log_image('mask', self.mask)
-
-        self.image_finished = self.image_thresholded
-        self.image_thresholded[self.mask == 0] = 255
-        Debug.log_image('image_finished', self.image_finished)
-
-    def __repr__(self):
-        return f'{self.__class__.__name__}({self.qr_anchor},c=({self.center.x},{self.center.y}),r={self.radius}))'
-
-    def draw_qr_area(self):
-        if len(self.image.shape) == 2:
-            img_qr_area = cv.cvtColor(self.image, cv.COLOR_GRAY2BGR)
-        else:
-            img_qr_area = self.image.copy()
-        for kp in self.qr_anchor:
-            cv.circle(img_qr_area, (kp.x, kp.y), int(kp.size / 2), colors.BGR_GREEN, 1)
-        cv.circle(img_qr_area, (self.center.x, self.center.y), self.radius, colors.BGR_GREEN, 1)
-        Debug.log_image('img_qr_area')
-        return img_qr_area
 
 
 def main():
@@ -203,21 +211,19 @@ def main():
         image0 = cv.imread(fname_path, cv.IMREAD_GRAYSCALE)
         Debug.log_image('image0')
 
-        qr_anchor_list = QrAnchorList(image0)  # qr_anchor - 3 big squares keypoints
+        qr_anchor_list = QrAnchorList(image0).qr_anchor_list  # qr_anchor - 3 big squares keypoints
 
-        for qr_anchor in qr_anchor_list:
-            print('qr anchor::', qr_anchor[0], qr_anchor[1], qr_anchor[2])
+        for anchor_num in range(len(qr_anchor_list)):
+            qr_anchor = qr_anchor_list[anchor_num]
+            print(f'qr anchor[{anchor_num}]:', qr_anchor[0], qr_anchor[1], qr_anchor[2])
             qr_area = QrArea(image0, qr_anchor)  # qr_are is a part of image0 with qr_code and all related methods
-            # qr_area_img = qr_area.draw()
-            # Debug.log_image('qr_area_img')
 
-            qr_list = QrMarkList(qr_area.image_finished)
-            qr_list.draw_boxes()
-            qr_list.draw_polygons()
+            qr_list = QrMarkList(qr_area.finished)
 
-            found = len(qr_list.qr_marks)
-
-            ok_cnt += 1 if found else 0
+            if len(qr_list.qr_marks):
+                ok_cnt += 1
+                print(f'\t\t\tfound_{anchor_num}_{qr_list.qr_marks[0].code}')
+                qr_area.draw_qr_area(image0,f'found_{anchor_num}_{qr_list.qr_marks[0].code}')
         tot_cnt += 1
         print(f'{fname_path}: Total: {ok_cnt}/{tot_cnt} ({ok_cnt/tot_cnt*100:.2f}%)')
 
