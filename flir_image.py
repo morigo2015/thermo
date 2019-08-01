@@ -19,7 +19,7 @@ class FlirImage:
         self.fie.process_image(fname_path,skip_thermal)
         self.visual_np = self.fie.get_rgb_np()
         self.thermal_np = self.fie.get_thermal_np()
-        self.marks_list = qr_read.QrMarkList(self.visual_np)
+        # self.marks_list = qr_read.QrMarkList(self.visual_np)
         # self.meters = [Meter(mark,self.thermal_np) for mark in self.marks_list.marks] # init meters:
         if not self.skip_thermal:
             self.vis_therm_ratio = ( self.visual_np.shape[0]/self.thermal_np.shape[0],
@@ -73,9 +73,9 @@ if __name__ == '__main__':
     def vis_img_processing():
         total_time_sec = 0
         file_counter = 0
-        root_fold = '../data/calibr/att_3/lbl_3inch'
+        root_fold = '../data/calibr/att_3/lbl_3in_angles'
         out_fold  = f'{root_fold}/visual'
-        for subfold in ['30', '60', '90','120']: # ,'150','180']:
+        for subfold in os.listdir(root_fold):  # ['30', '60', '90','120']
             for fname_path in glob.glob(f'{root_fold}/{subfold}/*.jpg'):
                 assert os.path.exists(fname_path),f'file {fname_path} not exist'
                 start = datetime.datetime.now()

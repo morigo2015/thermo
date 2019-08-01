@@ -1,25 +1,35 @@
 import os
 import math
 import sys
+import inspect
 import statistics
 import cv2 as cv
 import numpy as np
 
-inp_folder = f'../tmp'  # f'../data/calibr/att_3/lbl_3inch/visual/30' #
-inp_mask = f'test90.jpg'
-res_folder = f'../tmp/res_preproc'
-
+# inp_folder = f'../tmp'  # f'../data/calibr/att_3/lbl_3inch/visual/30' #
+# inp_mask = f'test90.jpg'
+# log_folder = f'../tmp/res_preproc'
+#
 
 class Debug:
     fname_path = None
-    res_folder = None
-    verbose = None
+    log_folder = None
+    verbose = False  # 0/False - no debug, 1/True - debug, 2 - verbose debug
 
     @classmethod
-    def set_log_image_names(cls, cur_fname_path, res_folder, verbose=False):
+    def set_log_image_names(cls, cur_fname_path, log_folder, verbose=False):  # пока оставил для qr_gen.py ***
         cls.fname_path = cur_fname_path
-        cls.res_folder = res_folder
+        cls.res_folder = log_folder
         cls.verbose = verbose
+
+    @classmethod
+    def set_params(cls, log_folder=None, input_file=None, verbose=None):
+        if log_folder is not None:
+            cls.res_folder = log_folder
+        if input_file is not None:
+            cls.fname_path = input_file
+        if verbose is not None:
+            cls.verbose = verbose
 
     @classmethod
     def log_image(cls, img_name, image=None):
@@ -28,9 +38,21 @@ class Debug:
             img = sys._getframe().f_back.f_locals[img_name]
         else:
             img = image
-        cv.imwrite(save_file_name, img)
-        if cls.verbose:
+        if cls.verbose >= 1:
+            cv.imwrite(save_file_name, img)
+        if cls.verbose > 1:
             print(f'{img_name} (shape={img.shape})saved to {save_file_name}')
+
+    @classmethod
+    def error(cls, message):
+        print(f'ERROR!!! in func {inspect.stack()[1].function}: {message}')
+
+    @classmethod
+    def print(cls, message, verbose_level=None):
+        if verbose_level is None:
+            verbose_level = 1
+        if verbose_level <= cls.verbose:
+            print(message)
 
 
 class KeyPoint:
@@ -92,7 +114,7 @@ class KeyPoint:
                      for kp in keypoints_tuple)
 
     @staticmethod
-    def getSubImage(keypoints, image):
+    def get_subimage(keypoints, image):
         # keypoints --> aligned (rotated to horizontal/vertical) sub image
         qr_area_contour = np.array([(kp.x, kp.y) for kp in keypoints], dtype=np.int32)
 
@@ -104,9 +126,9 @@ class KeyPoint:
         # Convert to int
         center, size = tuple(map(int, center)), tuple(map(int, size))
         # Get rotation matrix for rectangle
-        M = cv.getRotationMatrix2D(center, theta, 1)
+        rot_matrix = cv.getRotationMatrix2D(center, theta, 1)
         # Perform rotation on src image
-        dst = cv.warpAffine(image, M, image.shape[:2])
+        dst = cv.warpAffine(image, rot_matrix, image.shape[:2])
         out = cv.getRectSubPix(dst, size, center)
         return out
 
@@ -126,23 +148,23 @@ class KeyPointList:
 
     def __init__(self, key_points_list=None, blob_detector_keypoints_list=None):
         if blob_detector_keypoints_list is not None:
-            self._lst = [KeyPoint(blob_detector_keypoint=item) for item in blob_detector_keypoints_list]
+            self.lst = [KeyPoint(blob_detector_keypoint=item) for item in blob_detector_keypoints_list]
         elif key_points_list is not None:
-            self._lst = key_points_list
+            self.lst = key_points_list
         else:
             raise Exception(f'{self.__class__.__name__}.__init__('
                             f'key_points_list={key_points_list},'
                             f'blob_detector_keypoints_list={blob_detector_keypoints_list}) failed')
 
     def __repr__(self):
-        return f'{self.__class__.__name__}({",".join([str(item) for item in self._lst])})'
+        return f'{self.__class__.__name__}({",".join([str(item) for item in self.lst])})'
 
     def __str__(self):
-        lst_str = "\n\t".join([str(item) for item in self._lst])
-        return f'KeyPointsList[{len(self._lst)}]:\n\t{lst_str})'
+        lst_str = "\n\t".join([str(item) for item in self.lst])
+        return f'KeyPointsList[{len(self.lst)}]:\n\t{lst_str})'
 
     def __iter__(self):
-        for elem in self._lst:
+        for elem in self.lst:
             yield elem
 
     @staticmethod
@@ -155,6 +177,41 @@ class KeyPointList:
         blob_list = [{'size': 1, 'pt': (11, 22)}]
         print(f'blob_list={KeyPointList(blob_detector_keypoints_list=blob_list)}')
 
+
+#
+# class Box:
+#     # Box = collections.namedtuple('Box', 'left, top, width, height')
+#     def __init__(self,left=None,top=None,width=None,height=None,sides=None):
+#         if sides is None: # sides - tuple(left,top,width,height
+#
+#         self.left,self.top,self.width,self.height = left,top,width,height
+#
+#     def intersect(self,box):
+#
+#
+#     def IoU(self,box):
+#         # determine the (x, y)-coordinates of the intersection rectangle
+#         xA = max(boxA[0], boxB[0])
+#         yA = max(boxA[1], boxB[1])
+#         xB = min(boxA[2], boxB[2])
+#         yB = min(boxA[3], boxB[3])
+#
+#         # compute the area of intersection rectangle
+#         interArea = max(0, xB - xA + 1) * max(0, yB - yA + 1)
+#
+#         # compute the area of both the prediction and ground-truth
+#         # rectangles
+#         boxAArea = (boxA[2] - boxA[0] + 1) * (boxA[3] - boxA[1] + 1)
+#         boxBArea = (boxB[2] - boxB[0] + 1) * (boxB[3] - boxB[1] + 1)
+#
+#         # compute the intersection over union by taking the intersection
+#         # area and dividing it by the sum of prediction + ground-truth
+#         # areas - the interesection area
+#         iou = interArea / float(boxAArea + boxBArea - interArea)
+#
+#         # return the intersection over union value
+#         return iou
+#
 
 class MyMath:
 
@@ -184,7 +241,7 @@ if __name__ == '__main__':
     pass
     # print(MyMath.find_4th_corner(KeyPoint(0, 1), KeyPoint(1, 2), KeyPoint(2, 1)))
     # print(MyMath.find_4th_corner(KeyPoint(0, 1), KeyPoint(0, 0), KeyPoint(1, 0)))
-    kps = MyMath.stretch(KeyPoint(10, 10), KeyPoint(15, 10), KeyPoint(15, 15), KeyPoint(10, 15), 10)
-    print(kps)
-    kps_fit = MyMath.fit_to_shape(kps, (17, 17))
-    print(kps_fit)
+    # kps = MyMath.stretch(KeyPoint(10, 10), KeyPoint(15, 10), KeyPoint(15, 15), KeyPoint(10, 15), 10)
+    # print(kps)
+    # kps_fit = MyMath.fit_to_shape(kps, (17, 17))
+    # print(kps_fit)
