@@ -1,4 +1,4 @@
-# colors
+    # colors
 """
 names for basic colors; 
 COLORS[] - list of color codes, ordered to not merge so that neighboring colors are not merging

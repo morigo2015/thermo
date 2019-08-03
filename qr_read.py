@@ -14,26 +14,29 @@ import config
 
 # Point = collections.namedtuple('Point', 'x, y')
 
-inp_folders = f'../tmp'  # f'../data/calibr/att_3/lbl_3inch/visual/30' #
-# inp_folders = f'../data/calibr/att_3/lbl_3in_angles/visual/*' #
-inp_fname_mask = f'90_corn_flat.jpg'
-# inp_fname_mask = f'45_corn_rot.jpg'
+# inp_folders = f'../tmp'  # f'../data/calibr/att_3/lbl_3inch/visual/30' #
+inp_folders = f'../data/calibr/att_3/lbl_3in_curved/visual/cha*'  #
+# inp_fname_mask = f'flir_20190801T220319_v.jpg'
+inp_fname_mask = f'*.jpg'
 
 res_folder = f'../tmp/res_preproc'
-verbose = 2
-self_saver = None
+verbose = 0
 
 
 class Cfg(config.Cfg):
     min_blob_diameter = 10  # minimal size (diameter) of blob
     size_tolerance = 1  # default for approx comparison of sizes
-    distance_tolerance = 1 # 0.3  # default for approx comparison of sizes
+    distance_tolerance = 1  # 0.3  # default for approx comparison of sizes
     angle_tolerance = 10  # how many degrees from 90' to treat angle as right(90')
     # dist between big square centers = 14; additional modules 2*4(border)+2*3.5(half of big square)+2(safety)=
-    stretch_ratio = (14 + 2 * 4 + 2 * 3.5 + 2) / 14
+    expand_ratio = (14 + 2 * 4 + 2 * 3.5 + 2) / 14
     use_otsu_threshold = False
     iou_threshold = 0.5  # minimal IoU to treat boxes are equal (for duplicate eliminating in qr_mark_decoded
     max_keypoints_number = 50  # exit if found more keypoints in image
+    area_test = False
+    qr_module_size = 12  # module (small square in qr code) size
+    qr_blank_width = 4  # white zone outside qr code (in modules)
+    qr_side_with_blanks = 21 + 2 * qr_blank_width  # length of one side of qr code with white border (29) in modules
 
 
 class BlobKeypoints:
@@ -123,15 +126,22 @@ class CandidateQrAreas:
         for ind in range(len(self.anchors)):
             anchor = self.anchors[ind]
             kp, kp1, kp2 = anchor
-            # find 4th point
-            kp4 = kp.find_4th_corner(kp1, kp2)  # 3 squares --> 4th square
-            # rectangle of 4 square centers --> qr_area rectangle
-            corners = KeyPoint.stretch(kp1, kp, kp2, kp4, Cfg.stretch_ratio)
-            # correct corners which are out of image (after stretching)
-            qr_area_keypoints = KeyPoint.fit_to_shape(corners, self.image.shape)
-            # Extract subregion of qr_area from the entire image
-            qr_area = KeyPoint.get_subimage(qr_area_keypoints, self.image)
-
+            if Cfg.area_test:  # todo remove, it's just a test
+                # corners = KeyPoint.expand(kp1, kp, kp2, kp1, Cfg.expand_ratio)
+                # correct corners which are out of image (after stretching)
+                # new_kp1, new_kp, new_kp2, _ = KeyPoint.fit_to_shape(corners, self.image.shape)
+                # Extract subregion of qr_area from the entire image
+                qr_area = self.get_subimage_test(anchor, self.image)
+                Debug.log_image('area_after_warp', qr_area)
+            else:
+                # find 4th point
+                kp4 = kp.find_4th_corner(kp1, kp2)  # 3 squares --> 4th square
+                # rectangle of 4 square centers --> qr_area rectangle
+                corners = KeyPoint.expand(kp1, kp, kp2, kp4, Cfg.expand_ratio)
+                # correct corners which are out of image (after stretching)
+                qr_area_keypoints = KeyPoint.fit_to_shape(corners, self.image.shape)
+                # Extract subregion of qr_area from the entire image
+                qr_area = KeyPoint.get_subimage(qr_area_keypoints, self.image)
             # make otsu binarization if ordered in Cfg
             if Cfg.use_otsu_threshold:
                 blur = cv.GaussianBlur(qr_area, (5, 5), 0)
@@ -140,6 +150,34 @@ class CandidateQrAreas:
                 candidate_area = qr_area  # just to test
             Debug.log_image(f'finished_{ind}', candidate_area)
             self.candidate_qr_areas.append(candidate_area)
+
+    @staticmethod
+    def get_subimage_test(anchor, image):
+        pts_from = np.float32([(kp.x, kp.y) for kp in anchor])
+        square_center_dist = Cfg.qr_blank_width + 7 / 2  # distance from the center big square to edge of qr-code area
+        pts_to = np.float32([[square_center_dist, square_center_dist],
+                             [square_center_dist, Cfg.qr_side_with_blanks - square_center_dist],
+                             [Cfg.qr_side_with_blanks - square_center_dist, square_center_dist]])
+        pts_to *= Cfg.qr_module_size
+
+        total_side_pix = Cfg.qr_side_with_blanks * Cfg.qr_module_size
+        border_pix = Cfg.qr_blank_width * Cfg.qr_module_size
+
+        mat = cv.getAffineTransform(pts_from, pts_to)
+        qr_area = cv.warpAffine(image, mat, (total_side_pix, total_side_pix), None, cv.INTER_AREA,
+                                cv.BORDER_CONSTANT, colors.BGR_WHITE)
+
+        border_color = qr_area[
+            border_pix - Cfg.qr_module_size, border_pix - Cfg.qr_module_size]  # color to fill cleaned blanks (to be similar to main image)
+        blank = np.ones((total_side_pix, total_side_pix), dtype=np.uint8) * border_color
+        # make mask: 255 at border, 0 at qr code (between big squares)
+        mask = np.ones((total_side_pix, total_side_pix), dtype=np.uint8)  # * 255
+        mask[border_pix - Cfg.qr_module_size * 2:total_side_pix - border_pix + Cfg.qr_module_size * 2,
+            border_pix - Cfg.qr_module_size * 2:total_side_pix - border_pix + Cfg.qr_module_size * 2] = 0
+        # apply mask to qr_area (to clean background if qr code is curved)
+        # qr_area = cv.bitwise_and(qr_area, blank, mask)  # border - 255, image not changed
+        qr_area[mask == 1] = border_color
+        return qr_area
 
     @classmethod
     def item_repr(cls, area):
@@ -204,6 +242,7 @@ class QrDecode:
                 self.qr_decoded_marks.append(inp_m)
         Debug.print(f'decoded marks list after removing duplicates:{self.qr_decoded_marks}]')
 
+
 def find_qr(fname_path):
     image0 = cv.imread(fname_path, cv.IMREAD_GRAYSCALE)
     Debug.log_image('image0')
@@ -235,7 +274,8 @@ def main():
             if ok_cnt:
                 files_found += 1
             files_cnt += 1
-            print(f'\t\t{fname_path}: {ok_cnt} marks.  Files: {files_found}/{files_cnt} rate={100*files_found/files_cnt:.2f}%')
+            print(
+                f'\t\t{fname_path}: {ok_cnt} marks.  Files: {files_found}/{files_cnt} rate={100*files_found/files_cnt:.2f}%')
 
         print(f'Folder {folder}: {files_found}/{files_cnt} rate={100*files_found/files_cnt:.2f}%')
 
@@ -244,8 +284,6 @@ if __name__ == '__main__':
     # test_scale()
     # test()
     main()
-
-
 
     #
     # def test_scale():

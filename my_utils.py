@@ -6,6 +6,7 @@ import statistics
 import cv2 as cv
 import numpy as np
 
+
 # inp_folder = f'../tmp'  # f'../data/calibr/att_3/lbl_3inch/visual/30' #
 # inp_mask = f'test90.jpg'
 # log_folder = f'../tmp/res_preproc'
@@ -96,8 +97,8 @@ class KeyPoint:
         return KeyPoint(x=x, y=y)
 
     @staticmethod
-    def stretch(kp1, kp2, kp3, kp4, ratio: float):
-        # stretch square (kp1,kp2,kp3,kp4) in ratio times
+    def expand(kp1, kp2, kp3, kp4, ratio: float):
+        # expand square (kp1,kp2,kp3,kp4) in ratio times (image isn't resized, only corners moves out)
         keypoints = (kp1, kp2, kp3, kp4)
         c_x = statistics.mean((kp.x for kp in keypoints))
         c_y = statistics.mean((kp.y for kp in keypoints))
