@@ -6,11 +6,8 @@ import statistics
 import cv2 as cv
 import numpy as np
 
+import colors
 
-# inp_folder = f'../tmp'  # f'../data/calibr/att_3/lbl_3inch/visual/30' #
-# inp_mask = f'test90.jpg'
-# log_folder = f'../tmp/res_preproc'
-#
 
 class Debug:
     fname_path = None
@@ -90,6 +87,54 @@ class KeyPoint:
         # angle between (self,kp1) and (self,kp2), i.e. angle of (self) corner in triangle (kp1)(self)(kp2)
         return MyMath.angle(kp1, self, kp2)
 
+    def draw(self, image, label, color=colors.BGR_GREEN):
+        cv.circle(image, (self.x, self.y), 10, color, 2)
+        if label is not None:
+            cv.putText(image, label, (self.x, self.y), cv.FONT_HERSHEY_SIMPLEX, 2, color, 2)
+
+    @classmethod
+    def draw_list(cls, points_list, label_list, image):
+        for kp, label in zip(points_list, label_list):
+            kp.draw(image, label)
+
+    def draw_beam(self, kp2, label, image, color=colors.BGR_CYAN):
+        cv.line(image, (self.x, self.y), (kp2.x, kp2.y), color, 2)
+        self.draw(image,label)
+
+    @staticmethod
+    def xy_to_offset(xy,anchor):
+        # kp = KeyPoint(100, 100)
+        # kp1 = KeyPoint(200, 100)   # x-axis
+        # kp2 = KeyPoint(100, 200)
+        # xy = (150,125)
+        kp1, kp, kp2 = anchor
+        src_tri = np.array([ [kp.x,kp.y] for kp in [kp1,kp,kp2]]).astype(np.float32)
+        dst_tri = np.array([ [0,100], [0,0], [100,0]]).astype(np.float32)
+
+        mat = cv.getAffineTransform(src_tri,dst_tri)
+        src = np.array([[[xy[0],xy[1]]]])
+        res = cv.transform(src,mat)
+        # print(res)
+        return res[0][0]
+
+    @staticmethod
+    def offset_to_xy(offset,anchor):
+        # kp = KeyPoint(100, 100+100)
+        # kp1 = KeyPoint(200, 100+100)   # x-axis
+        # kp2 = KeyPoint(100, 200+100)
+        # offset = (25,50)
+        kp1, kp, kp2 = anchor
+        src_tri = np.array([ [0,100], [0,0], [100,0]]).astype(np.float32)
+        dst_tri = np.array([ [kp.x,kp.y] for kp in [kp1,kp,kp2]]).astype(np.float32)
+        mat = cv.getAffineTransform(src_tri,dst_tri)
+        src = np.array([[[offset[0],offset[1]]]])
+        res = cv.transform(src,mat)
+        # print(res)
+        return res[0][0]
+
+    def xy(self):
+        return self.x, self.y
+
     def find_4th_corner(self, kp1, kp2):
         # find 4th corner for parallelogram: (kp1)(kp)(kp2)(kp4??), this corner is opposite to (kp) corner
         x = kp2.x + (kp1.x - self.x)
@@ -133,17 +178,6 @@ class KeyPoint:
         out = cv.getRectSubPix(dst, size, center)
         return out
 
-    @classmethod
-    def test(cls):
-        kp1 = KeyPoint(size=100, xy=(3, 4))
-        kp2 = KeyPoint(size=200, x=8, y=9)
-        print(f'kp1={kp1}, kp2={kp2}')
-        kp5 = KeyPoint(blob_detector_keypoint={'size': 500, 'pt': (77, 88)})
-        print(f'kp5={kp5}')
-        # test incorrect init:
-        # kp3 = KeyPoints(size=300,x=9)
-        # kp4 = KeyPoints(size=400)
-
 
 class KeyPointList:
 
@@ -168,51 +202,6 @@ class KeyPointList:
         for elem in self.lst:
             yield elem
 
-    @staticmethod
-    def test():
-        kp1 = KeyPoint(size=100, xy=(5, 6))
-        kp2 = KeyPoint(size=200, xy=(8, 9))
-        print(f'kp1={kp1}, kp2={kp2}')
-        kp_list = KeyPointList([kp1, kp2])
-        print(f'kp_list={kp_list}')
-        blob_list = [{'size': 1, 'pt': (11, 22)}]
-        print(f'blob_list={KeyPointList(blob_detector_keypoints_list=blob_list)}')
-
-
-#
-# class Box:
-#     # Box = collections.namedtuple('Box', 'left, top, width, height')
-#     def __init__(self,left=None,top=None,width=None,height=None,sides=None):
-#         if sides is None: # sides - tuple(left,top,width,height
-#
-#         self.left,self.top,self.width,self.height = left,top,width,height
-#
-#     def intersect(self,box):
-#
-#
-#     def IoU(self,box):
-#         # determine the (x, y)-coordinates of the intersection rectangle
-#         xA = max(boxA[0], boxB[0])
-#         yA = max(boxA[1], boxB[1])
-#         xB = min(boxA[2], boxB[2])
-#         yB = min(boxA[3], boxB[3])
-#
-#         # compute the area of intersection rectangle
-#         interArea = max(0, xB - xA + 1) * max(0, yB - yA + 1)
-#
-#         # compute the area of both the prediction and ground-truth
-#         # rectangles
-#         boxAArea = (boxA[2] - boxA[0] + 1) * (boxA[3] - boxA[1] + 1)
-#         boxBArea = (boxB[2] - boxB[0] + 1) * (boxB[3] - boxB[1] + 1)
-#
-#         # compute the intersection over union by taking the intersection
-#         # area and dividing it by the sum of prediction + ground-truth
-#         # areas - the interesection area
-#         iou = interArea / float(boxAArea + boxBArea - interArea)
-#
-#         # return the intersection over union value
-#         return iou
-#
 
 class MyMath:
 
@@ -237,12 +226,11 @@ class MyMath:
 
 
 if __name__ == '__main__':
-    # KeyPoint.test()
-    # KeyPointList.test()
-    pass
-    # print(MyMath.find_4th_corner(KeyPoint(0, 1), KeyPoint(1, 2), KeyPoint(2, 1)))
-    # print(MyMath.find_4th_corner(KeyPoint(0, 1), KeyPoint(0, 0), KeyPoint(1, 0)))
-    # kps = MyMath.stretch(KeyPoint(10, 10), KeyPoint(15, 10), KeyPoint(15, 15), KeyPoint(10, 15), 10)
-    # print(kps)
-    # kps_fit = MyMath.fit_to_shape(kps, (17, 17))
-    # print(kps_fit)
+    kp = KeyPoint(100,100)
+    kp1 = KeyPoint(200,100)
+    kp2 = KeyPoint(100,200)
+    xy = (130,105)
+    new_xy = KeyPoint.xy_to_offset(xy,(kp,kp1,kp2))
+    inv_xy = KeyPoint.offset_to_xy(new_xy,(kp,kp1,kp2))
+    print(xy,new_xy,inv_xy)
+

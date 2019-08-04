@@ -73,9 +73,11 @@ if __name__ == '__main__':
     def vis_img_processing():
         total_time_sec = 0
         file_counter = 0
-        root_fold = '../data/calibr/att_3/lbl_3in_curved'
+        root_fold = '../data/tests'
+        # root_fold = '../data/calibr/att_3/lbl_3in_curved'
+        subfold_list = ['rotate'] # os.listdir(root_fold):  # ['30', '60', '90','120']
         out_fold  = f'{root_fold}/visual'
-        for subfold in ['chair']: # os.listdir(root_fold):  # ['30', '60', '90','120']
+        for subfold in subfold_list:
             for fname_path in glob.glob(f'{root_fold}/{subfold}/*.jpg'):
                 assert os.path.exists(fname_path),f'file {fname_path} not exist'
                 start = datetime.datetime.now()
