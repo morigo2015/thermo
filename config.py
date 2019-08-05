@@ -14,7 +14,7 @@ class MetaCfg(type): # since __repr__,__str__ are defines for instances we need 
         return f'{cls.__name__}:\n\t{s}'
 
 
-class Cfg(metaclass=MetaCfg): # user configurations will be derived from this class
+class Config(metaclass=MetaCfg): # user configurations will be derived from this class
 
     @classmethod
     def cfg_dict(cls):

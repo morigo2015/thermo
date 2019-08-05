@@ -25,17 +25,16 @@ import pyzbar.pyzbar as pyzbar
 import colors
 from box import Box
 from my_utils import Debug, KeyPoint, KeyPointList, MyMath
-import config
+from config import Config
 
-# inp_folders = f'../tmp'  # f'../data/calibr/att_3/lbl_3inch/visual/30' #
-inp_folders = f'../data/tests/visual/rot*'  #
-# inp_fname_mask = f'flir_20190801T220319_v.jpg'
-inp_fname_mask = f'*.jpg'
 
-res_folder = f'../tmp/res_preproc'
-verbose = 2
+class Cfg(Config):
+    inp_folders = f'../data/calibr/att_3/lbl_3in_curved/visual/ch*'  #
+    # inp_folders = f'../data/tests/visual/rot*'  #
+    inp_fname_mask = f'*.jpg'
+    res_folder = f'../tmp/res_preproc'
+    verbose = 0
 
-class Cfg(config.Cfg):
     min_blob_diameter = 10  # minimal size (diameter) of blob
     size_tolerance = 1  # default for approx comparison of sizes
     distance_tolerance = 1  # 0.3  # default for approx comparison of sizes
@@ -45,7 +44,7 @@ class Cfg(config.Cfg):
     use_otsu_threshold = False
     iou_threshold = 0.5  # minimal IoU to treat boxes are equal (for duplicate eliminating in qr_mark_decoded
     max_keypoints_number = 50  # exit if found more keypoints in image
-    area_preparing_method = 'warp' # new, any else - old
+    area_preparing_method = 'subimage'  # 'warp_affine' #
     qr_module_size = 12  # module (small square in qr code) size
     qr_blank_width = 4  # white zone outside qr code (in modules)
     qr_side_with_blanks = 21 + 2 * qr_blank_width  # length of one side of qr code with white border (29) in modules
@@ -109,7 +108,7 @@ class QrAnchors:
                     if not MyMath.approx_equal(kp.size, kp2.size, Cfg.size_tolerance): continue
                     # check if (kp1,kp,kp2) is right (90') triangle
                     angle = kp.angle(kp1, kp2)
-                    if not angle>0: continue  # not to have duplicates we throw away a lef-hand axes (or opposite :)
+                    if not angle > 0: continue  # not to have duplicates we throw away a lef-hand axes (or opposite :)
                     if not abs(angle - 90) < Cfg.angle_tolerance: continue
                     # check if |kp,kp1| ~~ |kp,kp2|
                     if not MyMath.approx_equal(kp.distance(kp1), kp.distance(kp2), Cfg.distance_tolerance): continue
@@ -126,7 +125,7 @@ class QrAnchors:
             img = cv.cvtColor(self.image, cv.COLOR_GRAY2BGR)
             for kp in anchor:
                 cv.circle(img, (kp.x, kp.y), kp.size, colors.BGR_RED, 2)
-            anchor[0].draw_beam(anchor[1],' ',img,colors.BGR_ORANGE)  # angle>0 ==> kp1 is xaxis (I suppose)
+            anchor[0].draw_beam(anchor[1], ' ', img, colors.BGR_ORANGE)  # angle>0 ==> kp1 is xaxis (I suppose)
             Debug.log_image(f'anchor_{ind}', img)
 
 
@@ -140,11 +139,11 @@ class CandidateQrAreas:
         for ind in range(len(self.anchors)):
             anchor = self.anchors[ind]
             kp, kp1, kp2 = anchor
-            if Cfg.area_preparing_method== 'warp':  # todo remove, it's just a test
+            if Cfg.area_preparing_method == 'warp_affine':  # todo remove, it's just a test
                 # Extract subregion of qr_area from the entire image
                 qr_area = self.get_subimage_warp(anchor, self.image)
                 Debug.log_image('area_after_warp', qr_area)
-            else: # old method: find 4th corner -> stretch -> fit_to_shape -> crop
+            else: # method=='subimage': find 4th corner -> stretch -> fit_to_shape -> crop
                 # find 4th point
                 kp4 = kp.find_4th_corner(kp1, kp2)  # 3 squares --> 4th square
                 # rectangle of 4 square centers --> qr_area rectangle
@@ -186,7 +185,7 @@ class CandidateQrAreas:
         # make mask: 255 at border, 0 at qr code (between big squares)
         mask = np.ones((total_side_pix, total_side_pix), dtype=np.uint8)  # * 255
         mask[border_pix - Cfg.qr_module_size * 2:total_side_pix - border_pix + Cfg.qr_module_size * 2,
-             border_pix - Cfg.qr_module_size * 2:total_side_pix - border_pix + Cfg.qr_module_size * 2] = 0
+        border_pix - Cfg.qr_module_size * 2:total_side_pix - border_pix + Cfg.qr_module_size * 2] = 0
         # apply mask to qr_area (to clean background if qr code is curved)
         qr_area[mask == 1] = border_color
         return qr_area
@@ -195,7 +194,7 @@ class CandidateQrAreas:
 class QrMark:
     # extended item from pyzabar.decode() list
 
-    def __init__(self, pyzbar_obj,area,anchor):
+    def __init__(self, pyzbar_obj, area, anchor):
         self.code = pyzbar_obj.data
         self.area = area
         self.anchor = anchor
@@ -220,6 +219,7 @@ class QrDecode:
         marks = []
         for ind in range(len(self.areas)):
             area = self.areas[ind]
+            Debug.log_image('area')
             pyzbar_objs = pyzbar.decode(area)
             if not len(pyzbar_objs):
                 continue
@@ -228,7 +228,7 @@ class QrDecode:
             if len(pyzbar_objs) > 1:
                 Debug.error(f'Multiple codes ({len(pyzbar_objs)}) found in {area}')
 
-            mark = QrMark(pyzbar_objs[0],self.areas[ind],self.anchors[ind])
+            mark = QrMark(pyzbar_objs[0], self.areas[ind], self.anchors[ind])
             marks.append(mark)
             Debug.log_image(f'found_{ind}_{mark.code}', area)
 
@@ -241,17 +241,26 @@ class QrDecode:
                 self.qr_decoded_marks.append(inp_m)
         Debug.print(f'decoded marks list after removing duplicates:{self.qr_decoded_marks}]')
 
+    @staticmethod
+    def get_all_qrs(image):
+        # image  --> list of qr_marks
+        if len(image.shape) != 2:
+            image = cv.cvtColor(image,cv.COLOR_BGR2GRAY)
+        blobs = Blob(image)
+        anchors = QrAnchors(blobs)
+        candidate_areas = CandidateQrAreas(anchors)
+        decoded_qrs = QrDecode(candidate_areas)
+        return decoded_qrs.qr_decoded_marks
+
 
 def process_file(fname_path):
     image0 = cv.imread(fname_path, cv.IMREAD_GRAYSCALE)
     Debug.log_image('image0')
+    qr_list = QrDecode.get_all_qrs(image0)
+    return len(qr_list)  # cnt marks found
 
-    blobs = Blob(image0)
-    anchors = QrAnchors(blobs)
-    candidate_areas = CandidateQrAreas(anchors)
-    decoded_qrs = QrDecode(candidate_areas)
 
-#####
+'''
     if not decoded_qrs.qr_decoded_marks:
         return 0
     qr_mark = decoded_qrs.qr_decoded_marks[0]
@@ -263,28 +272,25 @@ def process_file(fname_path):
         offset = KeyPoint.xy_to_offset(xy,anchor)
         print(f'offset={offset}')
     offset = (36,-198)
-    new_xy = tuple(KeyPoint.offset_to_xy(offset,anchor))
+    new_xy = KeyPoint.offset_to_xy(offset,anchor)
     img = cv.cvtColor(image0,cv.COLOR_GRAY2BGR)
     cv.circle(img, new_xy, 10, colors.BGR_RED, 4)
     Debug.log_image(f'offset_{os.path.basename(fname_path)[:-4]}.jpg', img)
-
-    ####
-
-    return len(decoded_qrs.qr_decoded_marks)  # cnt marks found
+'''
 
 
 def main():
-    shutil.rmtree(res_folder, ignore_errors=True)
-    os.makedirs(res_folder, exist_ok=True)
-    Debug.set_params(log_folder=res_folder, verbose=verbose)
+    shutil.rmtree(Cfg.res_folder, ignore_errors=True)
+    os.makedirs(Cfg.res_folder, exist_ok=True)
+    Debug.set_params(log_folder=Cfg.res_folder, verbose=Cfg.verbose)
 
-    for folder in sorted(glob.glob(f'{inp_folders}')):
+    for folder in sorted(glob.glob(f'{Cfg.inp_folders}')):
         if not os.path.isdir(folder):
             continue
 
         files_cnt = 0
         files_found = 0
-        for fname_path in glob.glob(f'{folder}/{inp_fname_mask}'):
+        for fname_path in glob.glob(f'{folder}/{Cfg.inp_fname_mask}'):
             Debug.set_params(input_file=fname_path)
 
             ok_cnt = process_file(fname_path)
@@ -300,6 +306,4 @@ def main():
 
 
 if __name__ == '__main__':
-
     main()
-
