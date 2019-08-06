@@ -3,6 +3,8 @@ import math
 import sys
 import inspect
 import statistics
+import datetime
+
 import cv2 as cv
 import numpy as np
 
@@ -31,7 +33,7 @@ class Debug:
 
     @classmethod
     def log_image(cls, img_name, image=None):
-        save_file_name = f'{cls.res_folder}/{os.path.basename(cls.fname_path)[:-4]}_{img_name}.jpg'
+        save_file_name = f'{cls.log_folder}/{os.path.basename(cls.fname_path)[:-4]}_{img_name}.jpg'
         if image is None:
             img = sys._getframe().f_back.f_locals[img_name]
         else:
@@ -223,6 +225,16 @@ class MyMath:
         v1 = np.array([kp3.x, kp3.y]) - np.array([kp2.x, kp2.y])
         angle = np.math.atan2(np.linalg.det([v0, v1]), np.dot(v0, v1))
         return np.degrees(angle)
+
+class Misc:
+
+    @staticmethod
+    def dtime_to_str(dtime):
+        return datetime.datetime.strftime(dtime, '%Y%m%dT%H%M%S')
+
+    @staticmethod
+    def str_to_dtime(dtime_str):
+        return datetime.datetime.strptime(dtime_str, '%Y%m%dT%H%M%S')
 
 
 if __name__ == '__main__':

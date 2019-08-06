@@ -8,9 +8,7 @@ import glob
 
 import cv2 as cv
 import numpy as np
-from PIL import Image
 from matplotlib import cm
-
 
 from my_utils import Debug, KeyPoint
 from config import Config
@@ -23,8 +21,8 @@ import colors
 class Cfg(Config):
     inp_folders = f'../data/tests/rot*'  #
     inp_fname_mask = f'*013.jpg'
-    res_folder = f'../tmp/res_preproc'
-    verbose = 2
+    log_folder = f'../tmp/res_preproc'
+    verbose = 0
 
 
 class Meter:
@@ -37,7 +35,7 @@ class Meter:
     def read_temperature(self, anchor, fi):
         visual_xy = KeyPoint.offset_to_xy(self.offset, anchor)
 
-        img_v = fi.visual_np.copy()
+        img_v = fi.visual_img.copy()
         cv.circle(img_v, visual_xy, 10, colors.BGR_GREEN, 2)
         Debug.log_image('visual', img_v)
 
@@ -50,25 +48,47 @@ class Meter:
         cv.circle(img_thermal, thermo_xy, 10, colors.BGR_GREEN, 2)
         Debug.log_image('thermal', img_thermal)
 
-        self.temperature = fi.point_temperature(thermo_xy)
+        temperature = fi.point_temperature(thermo_xy)
+        return temperature
+
+
+class Reading:
+
+    def __init__(self, flir_image, meter, temperature):
+        self.flir_image = flir_image
+        self.meter = meter
+        self.temperature = temperature
+
+    @staticmethod
+    def qrs_to_readings(qr_list, flir_image):
+        readings = []
+        for qr_mark in qr_list:
+            meter_records = Db.get_meters_from_db(qr_mark.code)
+            for meter_id, offset in meter_records:
+                meter = Meter(meter_id, offset)
+                Debug.print(f'file:{flir_image.fname_path} code={qr_mark.code}')
+                temperature = meter.read_temperature(qr_mark.anchor, flir_image)
+                reading = Reading(flir_image, meter, temperature)
+                readings.append(reading)
+        return readings
+
+    def save_to_db(self):
+        Db.save_reading_to_db(self.flir_image.datetime, self.meter.meter_id,
+                              self.flir_image.image_id, self.temperature)
 
 
 def process_file(fname_path_flir):
     fi = FlirImage(fname_path_flir)
-    qr_mark_list = QrDecode.get_all_qrs(fi.visual_np)
-    for qr_mark in qr_mark_list:
-        meter_records = Db.get_meters_info(qr_mark.code)
-        for meter_id, offset in meter_records:
-            Debug.print(f'file:{fname_path_flir} code={qr_mark.code}')
-            meter = Meter(meter_id, offset)
-            meter.read_temperature(qr_mark.anchor, fi)
-            Db.save_meter_value(fi.datetime, meter.meter_id, meter.temperature)
+    qr_mark_list = QrDecode.get_all_qrs(fi.visual_img)
+    readings = Reading.qrs_to_readings(qr_mark_list, fi)
+    for reading in readings:
+        reading.save_to_db()
 
 
 def main():
-    shutil.rmtree(Cfg.res_folder, ignore_errors=True)
-    os.makedirs(Cfg.res_folder, exist_ok=True)
-    Debug.set_params(log_folder=Cfg.res_folder, verbose=Cfg.verbose)
+    shutil.rmtree(Cfg.log_folder, ignore_errors=True)
+    os.makedirs(Cfg.log_folder, exist_ok=True)
+    Debug.set_params(log_folder=Cfg.log_folder, verbose=Cfg.verbose)
 
     for folder in sorted(glob.glob(f'{Cfg.inp_folders}')):
         if not os.path.isdir(folder):

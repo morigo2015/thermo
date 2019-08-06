@@ -10,7 +10,6 @@ class Box:
                  box=None):
         """
         create new box based on corners coordinates or corner-order string
-        :param coordinate_str: corner-order string
         """
         # self.is_empty = False
         if startX is not None and startY is not None and endX is not None and endY is not None:

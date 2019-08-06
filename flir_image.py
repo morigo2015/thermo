@@ -5,6 +5,7 @@ import datetime
 import cv2 as cv
 
 import flir_image_extractor
+from db import ImageFiles
 
 
 class FlirImage:
@@ -12,17 +13,17 @@ class FlirImage:
     def __init__(self, fname_path, skip_thermal=False):
         assert os.path.exists(fname_path), f'file {fname_path} does not exists'
         self.fname_path = fname_path
-        self.skip_thermal = skip_thermal
         self.datetime = self.extract_datetime()
         self.fie = flir_image_extractor.FlirImageExtractor(image_suffix="v.jpg", thermal_suffix="t.png")
         self.fie.process_image(fname_path, skip_thermal)
-        self.visual_np = self.fie.get_rgb_np()
+        self.flir_img = self.get_flir_image(fname_path)
+        self.visual_img = self.fie.get_rgb_np()
         self.thermal_np = self.fie.get_thermal_np()
-        # self.marks_list = qr_read.QrMarkList(self.visual_np)
-        # self.meters = [Meter(mark,self.thermal_np) for mark in self.marks_list.marks] # init meters:
-        if not self.skip_thermal:
-            self.vis_therm_ratio = (self.visual_np.shape[0] / self.thermal_np.shape[0],
-                                    self.visual_np.shape[1] / self.thermal_np.shape[1])
+        self.vis_therm_ratio = (self.visual_img.shape[0] / self.thermal_np.shape[0],
+                                self.visual_img.shape[1] / self.thermal_np.shape[1])
+        self.image_id = ImageFiles.save(self.datetime, self.flir_img,
+                                        self.visual_img, self.thermal_np)
+        self.skip_thermal = skip_thermal
 
     def __repr__(self):
         return f"{self.__class__.__name__}('{self.fname_path}')"
@@ -43,10 +44,15 @@ class FlirImage:
         return int(visual_xy[0] / self.vis_therm_ratio[0]), \
                int(visual_xy[1] / self.vis_therm_ratio[1])
 
+    @staticmethod
+    def get_flir_image(fname_path):
+        image = cv.imread(fname_path)
+        return image
+
     def point_temperature(self, therm_point_xy):
         return self.thermal_np[therm_point_xy[0], therm_point_xy[1]]  # **** check it ****
 
-    def save_visual(self, folder_to_save=None, prefix='', vis_suffix='_v.jpg'):
+    def save_visual_old(self, folder_to_save=None, prefix='', vis_suffix='_v.jpg'):
         path, fname = os.path.split(self.fname_path)
         if folder_to_save is None:
             folder_to_save = path
@@ -54,7 +60,7 @@ class FlirImage:
             os.makedirs(folder_to_save.rstrip('/'), exist_ok=True)
         fname_noext = fname[:-4]
         fname_path_out = f'{folder_to_save}/{prefix}{fname_noext}{vis_suffix}'
-        cv.imwrite(fname_path_out, self.visual_np)
+        cv.imwrite(fname_path_out, self.visual_img)
         print(f'visual image of {self.fname_path} saved to {fname_path_out}')
 
 
@@ -63,7 +69,7 @@ if __name__ == '__main__':
     def save_vis_image(fname_path, out_folder):
         # process_file(fname_path)
         fi = FlirImage(fname_path, skip_thermal=True)
-        fi.save_visual(folder_to_save=out_folder)
+        fi.save_visual_old(folder_to_save=out_folder)
 
 
     def vis_img_processing():

@@ -39,7 +39,7 @@ class Config(metaclass=MetaCfg): # user configurations will be derived from this
             setattr(cls,name,value)
 
 if __name__ == '__main__':
-    class TestCfg(Cfg):
+    class TestCfg(Config):
         f1 = True
         f2 = 'val2'
         f3 = 125
