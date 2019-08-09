@@ -40,7 +40,7 @@ class QrCfg(Config):
     text_font_size = 32
     text_font_scale = 2
     text_font_thickness = 3
-    sequence_start = 1000000
+    sequence_start = 2000000
     qr_white_margin = 4
     img_width_modules = 21 + 2 * qr_white_margin  # if ecc_level='H' then img is 21*21 modules + 2 * border(=4)
     qr_border = True  # make border for single qr code

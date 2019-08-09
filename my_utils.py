@@ -19,13 +19,16 @@ class Debug:
     @classmethod
     def set_log_image_names(cls, cur_fname_path, log_folder, verbose=False):  # пока оставил для qr_gen.py ***
         cls.fname_path = cur_fname_path
-        cls.res_folder = log_folder
+        cls.log_folder = log_folder
         cls.verbose = verbose
 
     @classmethod
     def set_params(cls, log_folder=None, input_file=None, verbose=None):
+        if cls.verbose:
+            Debug.print(f'Debug set params: '
+                        f'log_folder={log_folder}, input={input_file}, verbose = {verbose}')
         if log_folder is not None:
-            cls.res_folder = log_folder
+            cls.log_folder = log_folder
         if input_file is not None:
             cls.fname_path = input_file
         if verbose is not None:
@@ -38,8 +41,8 @@ class Debug:
             img = sys._getframe().f_back.f_locals[img_name]
         else:
             img = image
-        if cls.verbose >= 1:
-            cv.imwrite(save_file_name, img)
+        # if cls.verbose >= 1:
+        cv.imwrite(save_file_name, img)
         if cls.verbose > 1:
             print(f'{img_name} (shape={img.shape})saved to {save_file_name}')
 
@@ -109,30 +112,77 @@ class KeyPoint:
         # kp1 = KeyPoint(200, 100)   # x-axis
         # kp2 = KeyPoint(100, 200)
         # xy = (150,125)
-        kp1, kp, kp2 = anchor
-        src_tri = np.array([ [kp.x,kp.y] for kp in [kp1,kp,kp2]]).astype(np.float32)
-        dst_tri = np.array([ [0,100], [0,0], [100,0]]).astype(np.float32)
+        kp, kp1, kp2 = anchor
+        ang = kp.angle(kp1,kp2)
+        if ang > 0:  # swap kp1,2 to get kp2 pointed to x-axis in (kp1,kp,kp2) axes
+            kp2,kp1 = kp1,kp2
 
-        mat = cv.getAffineTransform(src_tri,dst_tri)
+        kp2_projx = KeyPoint(x=kp2.x,y=kp.y)
+        ang2 = kp.angle(kp2_projx,kp2)  # angle between (kp,kp2) and image's x-axis
+
+        mat = cv.getRotationMatrix2D(kp.xy(), ang2, 1.0)
         src = np.array([[[xy[0],xy[1]]]])
-        res = cv.transform(src,mat)
+        res = cv.transform(src,mat)[0][0]   # rotate
+        res = (res[0]-kp.x,res[1]-kp.y)     # shift
+        res = (res[0]/kp.distance(kp2), res[1]/kp.distance(kp1))  # scale, kp2 - x-axis, kp1 - y-axis
         # print(res)
-        return res[0][0]
+        return tuple(res)
 
     @staticmethod
     def offset_to_xy(offset,anchor):
-        # kp = KeyPoint(100, 100+100)
-        # kp1 = KeyPoint(200, 100+100)   # x-axis
-        # kp2 = KeyPoint(100, 200+100)
-        # offset = (25,50)
-        kp1, kp, kp2 = anchor
-        src_tri = np.array([ [0,100], [0,0], [100,0]]).astype(np.float32)
-        dst_tri = np.array([ [kp.x,kp.y] for kp in [kp1,kp,kp2]]).astype(np.float32)
-        mat = cv.getAffineTransform(src_tri,dst_tri)
+        kp, kp1, kp2 = anchor
+        ang = kp.angle(kp1,kp2)
+        if ang > 0:
+            kp2,kp1 = kp1,kp2
+        offset = (offset[0]*kp.distance(kp2), offset[1]*kp.distance(kp1))  # scale
+        offset = (offset[0]+kp.x, offset[1]+kp.y)  # shift
+
+        kp2_projx = KeyPoint(x=kp2.x,y=kp.y)
+        ang2 = kp.angle(kp2,kp2_projx)  # angle between (kp,kp2) and image's x-axis
+
+        mat = cv.getRotationMatrix2D(kp.xy(), ang2, 1.0)
         src = np.array([[[offset[0],offset[1]]]])
-        res = cv.transform(src,mat)
-        # print(res)
-        return tuple(res[0][0])
+        res = cv.transform(src,mat)[0][0]   # rotate
+        return int(res[0]),int(res[1])
+
+
+    # @staticmethod
+    # def xy_to_offset(xy,anchor):
+    #     # kp = KeyPoint(100, 100)
+    #     # kp1 = KeyPoint(200, 100)   # x-axis
+    #     # kp2 = KeyPoint(100, 200)
+    #     # xy = (150,125)
+    #     kp, kp1, kp2 = anchor
+    #     ang = kp.angle(kp1,kp2)
+    #     if ang > 0:
+    #         kp2,kp1 = kp1,kp2
+    #
+    #     src_tri = np.array([ [kp.x,kp.y] for kp in [kp1,kp,kp2]]).astype(np.float32)
+    #     dst_tri = np.array([ [0,100], [0,0], [100,0]]).astype(np.float32)
+    #
+    #     mat = cv.getAffineTransform(src_tri,dst_tri)
+    #     src = np.array([[[xy[0],xy[1]]]])
+    #     res = cv.transform(src,mat)
+    #     # print(res)
+    #     return res[0][0]
+
+    # @staticmethod
+    # def offset_to_xy(offset,anchor):
+    #     # kp = KeyPoint(100, 100+100)
+    #     # kp1 = KeyPoint(200, 100+100)   # x-axis
+    #     # kp2 = KeyPoint(100, 200+100)
+    #     # offset = (25,50)
+    #     kp, kp1, kp2 = anchor
+    #     ang = kp.angle(kp1,kp2)
+    #     if ang > 0:
+    #         kp2,kp1 = kp1,kp2
+    #     src_tri = np.array([ [0,100], [0,0], [100,0]]).astype(np.float32)
+    #     dst_tri = np.array([ [kp.x,kp.y] for kp in [kp1,kp,kp2]]).astype(np.float32)
+    #     mat = cv.getAffineTransform(src_tri,dst_tri)
+    #     src = np.array([[[offset[0],offset[1]]]])
+    #     res = cv.transform(src,mat)
+    #     # print(res)
+    #     return tuple(res[0][0])
 
     def xy(self):
         return self.x, self.y
@@ -238,11 +288,19 @@ class Misc:
 
 
 if __name__ == '__main__':
-    kp = KeyPoint(100,100)
-    kp1 = KeyPoint(200,100)
-    kp2 = KeyPoint(100,200)
-    xy = (130,105)
-    new_xy = KeyPoint.xy_to_offset(xy,(kp,kp1,kp2))
-    inv_xy = KeyPoint.offset_to_xy(new_xy,(kp,kp1,kp2))
-    print(xy,new_xy,inv_xy)
+    kp = KeyPoint(200,100)
+    kp1 = KeyPoint(100,200)
+    kp2 = KeyPoint(300,200)
+
+    new_kp = KeyPoint(500,200)
+    new_kp1 = KeyPoint(700,400)
+    new_kp2 = KeyPoint(700,0)
+
+    # xy = (130,105)
+    for xy in [kp.xy(),kp1.xy(),kp2.xy(),(400,300),(200,300),(300,100),(100,100),(200,0),(300,300)]:
+        new_xy = KeyPoint.xy_to_offset(xy,(kp,kp1,kp2))
+        inv_xy = KeyPoint.offset_to_xy(new_xy,(new_kp,new_kp1,new_kp2))
+        print(f'xy={xy[0]:.0f},{xy[1]:.0f}    '
+              f'new={new_xy[0]:.0f},{new_xy[1]:.0f}   '
+              f'inv={inv_xy[0]:.0f},{inv_xy[1]:.0f}')
 

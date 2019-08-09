@@ -17,7 +17,9 @@
 import os
 import shutil
 import glob
-
+import csv
+import collections
+import statistics
 import numpy as np
 import cv2 as cv
 import pyzbar.pyzbar as pyzbar
@@ -29,10 +31,10 @@ from config import Config
 
 
 class Cfg(Config):
-    inp_folders = f'../data/calibr/att_3/lbl_3in_curved/visual/ch*'  #
-    # inp_folders = f'../data/tests/visual/rot*'  #
+    # inp_folders = f'../data/calibr/att_3/lbl_3in_curved/visual/ch*'  #
+    inp_folders = f'../data/tests/visual/rot*'  #
     inp_fname_mask = f'*.jpg'
-    res_folder = f'../tmp/res_preproc'
+    log_folder = f'../tmp/res_preproc'
     verbose = 0
 
     min_blob_diameter = 10  # minimal size (diameter) of blob
@@ -48,6 +50,9 @@ class Cfg(Config):
     qr_module_size = 12  # module (small square in qr code) size
     qr_blank_width = 4  # white zone outside qr code (in modules)
     qr_side_with_blanks = 21 + 2 * qr_blank_width  # length of one side of qr code with white border (29) in modules
+
+    mode = 'find_offset'  # 'find_qr'
+    xy_info_file = f'../tmp/meters_xy.csv'
 
 
 class Blob:
@@ -143,7 +148,7 @@ class CandidateQrAreas:
                 # Extract subregion of qr_area from the entire image
                 qr_area = self.get_subimage_warp(anchor, self.image)
                 Debug.log_image('area_after_warp', qr_area)
-            else: # method=='subimage': find 4th corner -> stretch -> fit_to_shape -> crop
+            else:  # method=='subimage': find 4th corner -> stretch -> fit_to_shape -> crop
                 # find 4th point
                 kp4 = kp.find_4th_corner(kp1, kp2)  # 3 squares --> 4th square
                 # rectangle of 4 square centers --> qr_area rectangle
@@ -214,12 +219,13 @@ class QrDecode:
         self.image = candidate_areas.image
         self.areas = candidate_areas.candidate_qr_areas
         self.anchors = candidate_areas.anchors
+        self.qr_decoded_marks = None
 
         # areas --> qr_decoded_marks:
         marks = []
         for ind in range(len(self.areas)):
             area = self.areas[ind]
-            Debug.log_image('area')
+            Debug.log_image(f'{ind}_area', area)
             pyzbar_objs = pyzbar.decode(area)
             if not len(pyzbar_objs):
                 continue
@@ -232,20 +238,29 @@ class QrDecode:
             marks.append(mark)
             Debug.log_image(f'found_{ind}_{mark.code}', area)
 
-        # remove duplicates from marks
         # duplicates rarely created if several triplets looks like anchor while referencing to the same qr code area
-        self.qr_decoded_marks = []
-        for inp_m in marks:
-            if all([not inp_m.code == out_m.code for out_m in
-                    self.qr_decoded_marks]):  # no items in final list are near
-                self.qr_decoded_marks.append(inp_m)
+        # remove duplicates from marks:
+        # for equal codes take one with the minimal area
+        uniq_codes = list(set([m.code for m in marks]))  # list of unique codes from marks
+        code_minareas = [(c, min([m.box.area() for m in marks if m.code == c]))
+                         for c in uniq_codes]  # list of tuples (code, min area for all marks with this code)
+        # get items from marks which have minimal area for each uniq code
+        self.qr_decoded_marks = [m for m in marks if (m.code, m.box.area()) in code_minareas]
+
+        # self.qr_decoded_marks = []
+        # for inp_m in marks:
+        #     # if several marks are found with the same code, take the one with minimal area
+        #     if all([not inp_m.code == out_m.code for out_m in
+        #             self.qr_decoded_marks]):  # no items in final list are near
+        #         self.qr_decoded_marks.append(inp_m)
+
         Debug.print(f'decoded marks list after removing duplicates:{self.qr_decoded_marks}]')
 
     @staticmethod
     def get_all_qrs(image):
         # image  --> list of qr_marks
         if len(image.shape) != 2:
-            image = cv.cvtColor(image,cv.COLOR_BGR2GRAY)
+            image = cv.cvtColor(image, cv.COLOR_BGR2GRAY)
         blobs = Blob(image)
         anchors = QrAnchors(blobs)
         candidate_areas = CandidateQrAreas(anchors)
@@ -257,32 +272,46 @@ def process_file(fname_path):
     image0 = cv.imread(fname_path, cv.IMREAD_GRAYSCALE)
     Debug.log_image('image0')
     qr_list = QrDecode.get_all_qrs(image0)
-    return len(qr_list)  # cnt marks found
+    found = len(qr_list)  # cnt marks found
+    return found
 
 
-'''
-    if not decoded_qrs.qr_decoded_marks:
-        return 0
-    qr_mark = decoded_qrs.qr_decoded_marks[0]
-    anchor = qr_mark.anchor
-    if fname_path.endswith('041_v.jpg'):
-        xy = (1112,508)
-        cv.circle(image0,xy,10,colors.BGR_YELLOW,2)
-        cv.imwrite('../tmp/offset_target.jpg',image0)
-        offset = KeyPoint.xy_to_offset(xy,anchor)
-        print(f'offset={offset}')
-    offset = (36,-198)
-    new_xy = KeyPoint.offset_to_xy(offset,anchor)
-    img = cv.cvtColor(image0,cv.COLOR_GRAY2BGR)
-    cv.circle(img, new_xy, 10, colors.BGR_RED, 4)
-    Debug.log_image(f'offset_{os.path.basename(fname_path)[:-4]}.jpg', img)
-'''
+def find_offset(fname_path, xy=None, meter_id=None, code=None):
+    # if not fname_path.endswith('008_v.jpg'):
+    #     return
+    if xy is None:
+        xy = (978, 516)
+    xy = tuple(map(int, xy))
+
+    image0 = cv.imread(fname_path)  # , cv.IMREAD_GRAYSCALE)
+    # Debug.log_image('image0')
+    qr_list = QrDecode.get_all_qrs(image0)
+    if not len(qr_list):
+        Debug.error(f' not found any qr mark in {fname_path}')
+        return 9999, 9999
+    # if len(qr_list) > 1:
+    # Debug.error(f' more than one ({len(qr_list)}) marks in {fname_path}')
+    # qr_list = sorted(qr_list, key=lambda x: x.box.area(), reverse=True)
+    qr_list = [qr_mark for qr_mark in qr_list if code == qr_mark.code.decode('utf-8')]
+    if not len(qr_list):
+        Debug.error(f'not found mark for code {code} in file {fname_path}')
+        return 9999, 9999
+    anchor = qr_list[0].anchor
+
+    img = image0.copy()
+    cv.circle(img, xy, 10, colors.BGR_YELLOW, 2)
+    KeyPoint.draw_list(anchor, ['kp', 'kp1', 'kp2'], img)
+    Debug.log_image(f'{meter_id}_offs_target', img)
+
+    offset = KeyPoint.xy_to_offset(xy, anchor)
+    print(f'file {fname_path}:  code={qr_list[0].code} offset={offset[0]:.5f},{offset[1]:.5f}')
+    return offset
 
 
-def main():
-    shutil.rmtree(Cfg.res_folder, ignore_errors=True)
-    os.makedirs(Cfg.res_folder, exist_ok=True)
-    Debug.set_params(log_folder=Cfg.res_folder, verbose=Cfg.verbose)
+def main_find_qr():
+    shutil.rmtree(Cfg.log_folder, ignore_errors=True)
+    os.makedirs(Cfg.log_folder, exist_ok=True)
+    Debug.set_params(log_folder=Cfg.log_folder, verbose=Cfg.verbose)
 
     for folder in sorted(glob.glob(f'{Cfg.inp_folders}')):
         if not os.path.isdir(folder):
@@ -294,6 +323,8 @@ def main():
             Debug.set_params(input_file=fname_path)
 
             ok_cnt = process_file(fname_path)
+            # ok_cnt=0
+            # find_offset(fname_path)
 
             if ok_cnt:
                 files_found += 1
@@ -305,5 +336,53 @@ def main():
         print(f'Folder {folder}: {files_found}/{files_cnt} rate={100*files_found/files_cnt:.2f}%')
 
 
+def main_find_offset():
+    MeterXy = collections.namedtuple('MeterXy', ['file_name', 'meter_id', 'code', 'x', 'y'])
+    MeterOff = collections.namedtuple('MeterXy', ['file_name', 'meter_id', 'code', 'x', 'y', 'off_x', 'off_y'])
+
+    folder = '../tmp/out/images/2019-08-08'
+
+    # read meter_xy.csv
+    with open(Cfg.xy_info_file, newline='') as csvfile:
+        reader = csv.reader(csvfile, delimiter=',', quotechar='"')
+        next(reader, None)  # skip headers
+        meter_xy_list = [MeterXy(row[0], row[1], row[2], row[3], row[4]) for row in reader]
+
+    shutil.rmtree(Cfg.log_folder, ignore_errors=True)
+    os.makedirs(Cfg.log_folder, exist_ok=True)
+    Debug.set_params(log_folder=Cfg.log_folder, verbose=Cfg.verbose)
+    offsets = []
+    for m in meter_xy_list:
+        # if not str(m.file_name).endswith('447_v'):  # 554
+        #     continue
+        fname_path = f'{folder}/{m.file_name}.jpg'
+        Debug.set_params(input_file=fname_path)
+
+        off = find_offset(fname_path, (m.x, m.y), m.meter_id, m.code)
+        offsets.append(MeterOff(m.file_name, m.meter_id, m.code, m.x, m.y, off[0], off[1]))
+    offsets = sorted(offsets, key=lambda x: x.meter_id)
+    print('offsets:\n\t', '\n\t'.join([f'{m.meter_id} : {m.file_name} : ({m.off_x:.5f},{m.off_y:.5f})  '
+                                       f'xy:({m.x},{m.y})' for m in offsets if m.off_x != 9999.]), sep='')
+
+    for meter_id in sorted(list(set([off.meter_id for off in offsets])),key=lambda x: int(x)):
+        lst = [(m.off_x, m.off_y) for m in offsets if m.meter_id == meter_id and m.off_x != 9999]
+        xy = [[l[i] for l in lst] for i in [0,1]]
+        # avg = (statistics.mean([l[0] for l in lst]), statistics.mean([l[0] for l in lst]))
+        avg = (statistics.mean(xy[0]), statistics.mean(xy[1]))
+        min_v = (min(xy[0]), min(xy[1]))
+        max_v = (max(xy[0]), max(xy[1]))
+        diff = (max_v[0]-min_v[0], max_v[1]-min_v[1])
+        print(f'meter_id={meter_id} '
+              f'avg=({avg[0]: .5f},{avg[1]: .5f}) '
+              f'min=({min_v[0]: .5f},{min_v[1]: .5f}) '
+              f'max=({max_v[0]: .5f},{max_v[1]: .5f})'
+              f'diff=({diff[0]: .5f},{diff[1]: .5f})'
+              )
+
+
 if __name__ == '__main__':
-    main()
+    Cfg.print()
+    if Cfg.mode == 'find_qr':
+        main_find_qr()
+    else:
+        main_find_offset()

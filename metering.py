@@ -19,18 +19,18 @@ import colors
 
 
 class Cfg(Config):
-    inp_folders = f'../data/tests/rot*'  #
-    inp_fname_mask = f'*013.jpg'
+    inp_folders = f'../data/tests/door'  #
+    inp_fname_mask = f'*.jpg'
     log_folder = f'../tmp/res_preproc'
     verbose = 0
 
 
 class Meter:
 
-    def __init__(self, meter_id, offset):
+    def __init__(self, meter_id, offset, qr_mark):
         self.meter_id = meter_id
         self.offset = offset
-        self.temperature = None
+        self.qr_mark = qr_mark
 
     def read_temperature(self, anchor, fi):
         visual_xy = KeyPoint.offset_to_xy(self.offset, anchor)
@@ -48,7 +48,7 @@ class Meter:
         cv.circle(img_thermal, thermo_xy, 10, colors.BGR_GREEN, 2)
         Debug.log_image('thermal', img_thermal)
 
-        temperature = fi.point_temperature(thermo_xy)
+        temperature = -1  # todo change !!! fi.point_temperature(thermo_xy)
         return temperature
 
 
@@ -59,22 +59,43 @@ class Reading:
         self.meter = meter
         self.temperature = temperature
 
+    def save_to_db(self):
+        Db.save_reading_to_db(self.flir_image.datetime, self.meter.meter_id,
+                              self.flir_image.image_id, self.temperature)
+
+    def draw(self):
+        for image, suffix in [(self.flir_image.visual_img, 'vis'),
+                              (self.flir_image.flir_img, 'flr')]:
+            # img = self.flir_image.visual_img
+            img = image.copy()
+            xy = KeyPoint.offset_to_xy(self.meter.offset, self.meter.qr_mark.anchor)
+            cv.circle(img, xy, 10, colors.BGR_ORANGE, 2)
+            cv.putText(img, f'{self.temperature:.1f}'
+                       , xy, cv.FONT_HERSHEY_SIMPLEX, 2, colors.BGR_CYAN, 2)
+            fname = f'{Cfg.log_folder}/' \
+                    f'{os.path.basename(self.flir_image.fname_path)[:-4]}_' \
+                    f'{self.meter.meter_id}_{suffix}.jpg'
+            cv.imwrite(fname, img)
+
+        # flir_img = self.flir_image.flir_img
+        # self.meter.draw(flir_img)
+
     @staticmethod
     def qrs_to_readings(qr_list, flir_image):
         readings = []
         for qr_mark in qr_list:
             meter_records = Db.get_meters_from_db(qr_mark.code)
-            for meter_id, offset in meter_records:
-                meter = Meter(meter_id, offset)
+            if meter_records is None:
+                Debug.print(f'qrs_to_readings: no meters for qr_mark {qr_mark}')
+                continue
+            for meter_id, offset_x, offset_y in meter_records:
+                meter = Meter(meter_id, (offset_x, offset_y), qr_mark)
                 Debug.print(f'file:{flir_image.fname_path} code={qr_mark.code}')
                 temperature = meter.read_temperature(qr_mark.anchor, flir_image)
                 reading = Reading(flir_image, meter, temperature)
+                reading.draw()
                 readings.append(reading)
         return readings
-
-    def save_to_db(self):
-        Db.save_reading_to_db(self.flir_image.datetime, self.meter.meter_id,
-                              self.flir_image.image_id, self.temperature)
 
 
 def process_file(fname_path_flir):
@@ -89,6 +110,7 @@ def main():
     shutil.rmtree(Cfg.log_folder, ignore_errors=True)
     os.makedirs(Cfg.log_folder, exist_ok=True)
     Debug.set_params(log_folder=Cfg.log_folder, verbose=Cfg.verbose)
+    Db.connect()
 
     for folder in sorted(glob.glob(f'{Cfg.inp_folders}')):
         if not os.path.isdir(folder):
@@ -104,6 +126,8 @@ def main():
             print(f'{fname_path_flir}')
 
         print(f'Folder {folder}: {files_cnt}')
+
+    Db.close()
 
 
 if __name__ == '__main__':
