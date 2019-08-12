@@ -113,8 +113,9 @@ class QrAnchors:
                     if not MyMath.approx_equal(kp.size, kp2.size, Cfg.size_tolerance): continue
                     # check if (kp1,kp,kp2) is right (90') triangle
                     angle = kp.angle(kp1, kp2)
-                    if not angle > 0: continue  # not to have duplicates we throw away a lef-hand axes (or opposite :)
-                    if not abs(angle - 90) < Cfg.angle_tolerance: continue
+                    # todo change to angle>0
+                    if not angle < 0: continue  # not to have duplicates we throw away a lef-hand axes (or opposite :)
+                    if not abs(abs(angle) - 90) < Cfg.angle_tolerance: continue
                     # check if |kp,kp1| ~~ |kp,kp2|
                     if not MyMath.approx_equal(kp.distance(kp1), kp.distance(kp2), Cfg.distance_tolerance): continue
                     # # skip (kp,kp1,kp2) if (kp,kp2,kp1) already exists

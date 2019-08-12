@@ -3,6 +3,8 @@ import os
 import datetime
 
 import cv2 as cv
+import numpy as np
+from matplotlib import cm
 
 import flir_image_extractor
 from db import ImageFiles
@@ -19,8 +21,26 @@ class FlirImage:
         self.flir_img = self.get_flir_image(fname_path)
         self.visual_img = self.fie.get_rgb_np()
         self.thermal_np = self.fie.get_thermal_np()
+        thermal_normalized = (self.thermal_np - np.amin(self.thermal_np)) \
+                             / (np.amax(self.thermal_np) - np.amin(self.thermal_np))
+        self.thermal_img = np.array(np.uint8(cm.inferno(thermal_normalized) * 255))  # inferno,gray
+        self.thermal_img = cv.cvtColor(self.thermal_img,cv.COLOR_RGBA2BGR)
+
         self.vis_therm_ratio = (self.visual_img.shape[0] / self.thermal_np.shape[0],
                                 self.visual_img.shape[1] / self.thermal_np.shape[1])
+        if self.flir_img.shape[0] > self.flir_img.shape[1]:  # vertical
+            # transpose
+            # self.flir_img = cv.transpose(self.flir_img)
+            # self.visual_img = cv.transpose(self.visual_img)
+            # self.thermal_np = cv.transpose(self.thermal_np)
+            # self.thermal_img = cv.transpose(self.thermal_img)
+            # rotate
+            self.flir_img = np.rot90(self.flir_img)
+            self.visual_img = np.rot90(self.visual_img)
+            self.thermal_np = np.rot90(self.thermal_np)
+            self.thermal_img = np.rot90(self.thermal_img)
+
+
         self.image_id = ImageFiles.save(self.datetime, self.flir_img,
                                         self.visual_img, self.thermal_np)
         self.skip_thermal = skip_thermal

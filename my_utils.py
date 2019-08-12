@@ -100,7 +100,7 @@ class KeyPoint:
     @classmethod
     def draw_list(cls, points_list, label_list, image):
         for kp, label in zip(points_list, label_list):
-            kp.draw(image, label)
+            kp.draw_images(image, label)
 
     def draw_beam(self, kp2, label, image, color=colors.BGR_CYAN):
         cv.line(image, (self.x, self.y), (kp2.x, kp2.y), color, 2)
@@ -132,8 +132,9 @@ class KeyPoint:
     def offset_to_xy(offset,anchor):
         kp, kp1, kp2 = anchor
         ang = kp.angle(kp1,kp2)
-        if ang > 0:
-            kp2,kp1 = kp1,kp2
+        # if ang > 0:  # swap kp1,2 to get kp2 pointed to x-axis in (kp1,kp,kp2) axes
+        #     Debug.print(f'Axis swap in offset_to_xy: {kp1} <--> {kp2}, angle={ang}',verbose_level=2)
+        #     kp2,kp1 = kp1,kp2
         offset = (offset[0]*kp.distance(kp2), offset[1]*kp.distance(kp1))  # scale
         offset = (offset[0]+kp.x, offset[1]+kp.y)  # shift
 
@@ -144,6 +145,12 @@ class KeyPoint:
         src = np.array([[[offset[0],offset[1]]]])
         res = cv.transform(src,mat)[0][0]   # rotate
         return int(res[0]),int(res[1])
+
+    @staticmethod
+    def check_xy_bound(xy, image):
+        # supposing x is ..[*:], y ... is [:*]  (cv2-like, not numpy-like)
+        return True if (0 <= xy[0] < image.shape[0]) and (0 <= xy[1] < image.shape[1]) \
+                    else False
 
 
     # @staticmethod
