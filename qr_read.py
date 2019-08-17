@@ -21,8 +21,6 @@ import csv
 import collections
 import statistics
 import logging
-logger = logging.getLogger('qr_read')
-logger.setLevel(logging.WARNING)
 
 import numpy as np
 import cv2 as cv
@@ -33,6 +31,7 @@ from box import Box
 from my_utils import Debug, KeyPoint, KeyPointList, MyMath
 from config import Config
 
+logger = logging.getLogger('qr_read')
 
 class Cfg(Config):
     # inp_folders = f'../data/calibr/att_3/lbl_3in_curved/visual/ch*'  #

@@ -3,11 +3,10 @@ import math
 import sys
 import statistics
 import datetime
-import logging
-
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.WARNING)
 import shutil
+import logging
+import logging.config
+import yaml
 
 import cv2 as cv
 import numpy as np
@@ -15,12 +14,23 @@ import numpy as np
 import colors
 
 
+def setup_logging(default_path='log_config.yaml'):
+    # Setup logging configuration
+    path = default_path
+    assert os.path.exists(path)
+    with open(path, 'rt') as f:
+        config = yaml.safe_load(f.read())
+    logging.config.dictConfig(config)
+
+
+setup_logging()
+logger = logging.getLogger(__name__)
+
+
 class Debug:
-    log_level = logging.INFO
     fname_path = None
     log_folder = None
     log_file = None
-    # log_image_set = False  # 0/False - no debug, 1/True - debug, 2 - verbose debug
     log_image_set = True  # save log images to log_folder if True
 
     @classmethod
@@ -49,7 +59,8 @@ class Debug:
         # if cls.verbose >= 1:
         cv.imwrite(save_file_name, img)
         if cls.log_image_set:
-            logger.debug(f'{img_name} (shape={img.shape})saved to {save_file_name}')
+            logger.info(f'{img_name} (shape={img.shape})saved to {save_file_name}')
+
 
 # x - column, y - row.  Attention we use (x,y) for cv, but [y,x] for [] and numpy
 
@@ -149,44 +160,6 @@ class KeyPoint:
         # supposing x is ..[*:], y ... is [:*]  (cv2-like, not numpy-like)
         return True if (0 <= xy[0] < image.shape[1]) and (0 <= xy[1] < image.shape[0]) \
             else False
-
-    # @staticmethod
-    # def xy_to_offset(xy,anchor):
-    #     # kp = KeyPoint(100, 100)
-    #     # kp1 = KeyPoint(200, 100)   # x-axis
-    #     # kp2 = KeyPoint(100, 200)
-    #     # xy = (150,125)
-    #     kp, kp1, kp2 = anchor
-    #     ang = kp.angle(kp1,kp2)
-    #     if ang > 0:
-    #         kp2,kp1 = kp1,kp2
-    #
-    #     src_tri = np.array([ [kp.x,kp.y] for kp in [kp1,kp,kp2]]).astype(np.float32)
-    #     dst_tri = np.array([ [0,100], [0,0], [100,0]]).astype(np.float32)
-    #
-    #     mat = cv.getAffineTransform(src_tri,dst_tri)
-    #     src = np.array([[[xy[0],xy[1]]]])
-    #     res = cv.transform(src,mat)
-    #     # print(res)
-    #     return res[0][0]
-
-    # @staticmethod
-    # def offset_to_xy(offset,anchor):
-    #     # kp = KeyPoint(100, 100+100)
-    #     # kp1 = KeyPoint(200, 100+100)   # x-axis
-    #     # kp2 = KeyPoint(100, 200+100)
-    #     # offset = (25,50)
-    #     kp, kp1, kp2 = anchor
-    #     ang = kp.angle(kp1,kp2)
-    #     if ang > 0:
-    #         kp2,kp1 = kp1,kp2
-    #     src_tri = np.array([ [0,100], [0,0], [100,0]]).astype(np.float32)
-    #     dst_tri = np.array([ [kp.x,kp.y] for kp in [kp1,kp,kp2]]).astype(np.float32)
-    #     mat = cv.getAffineTransform(src_tri,dst_tri)
-    #     src = np.array([[[offset[0],offset[1]]]])
-    #     res = cv.transform(src,mat)
-    #     # print(res)
-    #     return tuple(res[0][0])
 
     def xy(self):
         return self.x, self.y
@@ -305,8 +278,8 @@ if __name__ == '__main__':
     for xy in [kp.xy(), kp1.xy(), kp2.xy(), (400, 300), (200, 300), (300, 100), (100, 100), (200, 0), (300, 300)]:
         offs_xy = KeyPoint.xy_to_offset(xy, (kp, kp1, kp2))
         inv_xy = KeyPoint.offset_to_xy(offs_xy, (new_kp, new_kp1, new_kp2))
-        print(f'xy={xy[0]:.0f},{xy[1]:.0f}    '
-              f'offset={offs_xy[0]:.0f},{offs_xy[1]:.0f}   '
-              f'inv={inv_xy[0]:.0f},{inv_xy[1]:.0f}')
+        logger.info(f'xy={xy[0]:.0f},{xy[1]:.0f}    '
+                    f'offset={offs_xy[0]:.0f},{offs_xy[1]:.0f}   '
+                    f'inv={inv_xy[0]:.0f},{inv_xy[1]:.0f}')
 
     ang = MyMath.angle(kp1, kp, kp2)

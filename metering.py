@@ -6,8 +6,6 @@ import os
 import glob
 import datetime
 import logging
-logger = logging.getLogger('metering')
-logger.setLevel(logging.WARNING)
 
 import cv2 as cv
 
@@ -18,6 +16,7 @@ from flir_image import FlirImage
 from db import Db
 import colors
 
+logger = logging.getLogger('metering')
 
 class Cfg(Config):
     inp_folders = f'../data/tests/door-autocalibr/long-noturnoff-ideal-calibr/'  #
