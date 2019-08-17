@@ -20,6 +20,10 @@ import glob
 import csv
 import collections
 import statistics
+import logging
+logger = logging.getLogger('qr_read')
+logger.setLevel(logging.WARNING)
+
 import numpy as np
 import cv2 as cv
 import pyzbar.pyzbar as pyzbar
@@ -78,7 +82,7 @@ class Blob:
         Debug.log_image('img_with_keypoints', img_with_keypoints)
 
         blob_keypoints = KeyPointList(blob_detector_keypoints_list=keypoints)
-        Debug.print(f'keypoints found:{blob_keypoints}')
+        logger.info(f'keypoints found:{blob_keypoints}')
         return blob_keypoints
 
 
@@ -97,11 +101,8 @@ class QrAnchors:
 
     def keypoints_2_qr_anchors(self):
         # Debug.print(f'kp-->anchors, before:{self.keypoints}')
-        Debug.print(f'hist (10,200,10):'
-                    f'{np.histogram([i.size for i in self.keypoints.lst], bins=[i for i in range(10, 200, 10)])}',
-                    verbose_level=2)
         if len(self.keypoints.lst) > Cfg.max_keypoints_number:
-            Debug.error('Too many keypoints')
+            logger.error('Too many keypoints')
             exit(1)
         qr_anchors = []
         for kp in self.keypoints:
@@ -120,9 +121,9 @@ class QrAnchors:
                     if not MyMath.approx_equal(kp.distance(kp1), kp.distance(kp2), Cfg.distance_tolerance): continue
                     # # skip (kp,kp1,kp2) if (kp,kp2,kp1) already exists
                     # if not qr_anchors.count((kp, kp2, kp1)) == 0: continue
-                    Debug.print(f'append: {kp}, {kp1}, {kp2}')
+                    logger.info(f'append: {kp}, {kp1}, {kp2}')
                     qr_anchors.append((kp, kp1, kp2))
-        Debug.print(f'found {len(qr_anchors)} anchors: {qr_anchors}')
+                logger.info(f'found {len(qr_anchors)} anchors: {qr_anchors}')
         return qr_anchors
 
     def draw_anchors(self):
@@ -231,9 +232,10 @@ class QrDecode:
             if not len(pyzbar_objs):
                 continue
 
-            # ToDo решить что делать если вдруг несколько кодов в кадре (так не должно быть)
             if len(pyzbar_objs) > 1:
-                Debug.error(f'Multiple codes ({len(pyzbar_objs)}) found in {area}')
+                logger.warning(f'Multiple codes ({len(pyzbar_objs)}) found in area {ind}')
+                # skip it, definitely they should be found separately
+                continue
 
             mark = QrMark(pyzbar_objs[0], self.areas[ind], self.anchors[ind])
             marks.append(mark)
@@ -255,7 +257,7 @@ class QrDecode:
         #             self.qr_decoded_marks]):  # no items in final list are near
         #         self.qr_decoded_marks.append(inp_m)
 
-        Debug.print(f'decoded marks list after removing duplicates:{self.qr_decoded_marks}]')
+        logger.info(f'decoded marks list after removing duplicates:{self.qr_decoded_marks}]')
 
     @staticmethod
     def get_all_qrs(image):
@@ -288,14 +290,14 @@ def find_offset(fname_path, xy=None, meter_id=None, code=None):
     # Debug.log_image('image0')
     qr_list = QrDecode.get_all_qrs(image0)
     if not len(qr_list):
-        Debug.error(f' not found any qr mark in {fname_path}')
+        logger.error(f' not found any qr mark in {fname_path}')
         return 9999, 9999
     # if len(qr_list) > 1:
     # Debug.error(f' more than one ({len(qr_list)}) marks in {fname_path}')
     # qr_list = sorted(qr_list, key=lambda x: x.box.area(), reverse=True)
     qr_list = [qr_mark for qr_mark in qr_list if code == qr_mark.code.decode('utf-8')]
     if not len(qr_list):
-        Debug.error(f'not found mark for code {code} in file {fname_path}')
+        logger.error(f'not found mark for code {code} in file {fname_path}')
         return 9999, 9999
     anchor = qr_list[0].anchor
 
@@ -312,7 +314,7 @@ def find_offset(fname_path, xy=None, meter_id=None, code=None):
 def main_find_qr():
     shutil.rmtree(Cfg.log_folder, ignore_errors=True)
     os.makedirs(Cfg.log_folder, exist_ok=True)
-    Debug.set_params(log_folder=Cfg.log_folder, verbose=Cfg.verbose)
+    Debug.set_params(log_folder=Cfg.log_folder, log_image=Cfg.verbose)
 
     for folder in sorted(glob.glob(f'{Cfg.inp_folders}')):
         if not os.path.isdir(folder):
@@ -321,7 +323,7 @@ def main_find_qr():
         files_cnt = 0
         files_found = 0
         for fname_path in glob.glob(f'{folder}/{Cfg.inp_fname_mask}'):
-            Debug.set_params(input_file=fname_path)
+            Debug.set_log_image_names(fname_path)
 
             ok_cnt = process_file(fname_path)
             # ok_cnt=0
@@ -351,13 +353,13 @@ def main_find_offset():
 
     shutil.rmtree(Cfg.log_folder, ignore_errors=True)
     os.makedirs(Cfg.log_folder, exist_ok=True)
-    Debug.set_params(log_folder=Cfg.log_folder, verbose=Cfg.verbose)
+    Debug.set_params(log_folder=Cfg.log_folder, log_image=Cfg.verbose)
     offsets = []
     for m in meter_xy_list:
         # if not str(m.file_name).endswith('447_v'):  # 554
         #     continue
         fname_path = f'{folder}/{m.file_name}.jpg'
-        Debug.set_params(input_file=fname_path)
+        Debug.set_log_image_names(fname_path)
 
         off = find_offset(fname_path, (m.x, m.y), m.meter_id, m.code)
         offsets.append(MeterOff(m.file_name, m.meter_id, m.code, m.x, m.y, off[0], off[1]))

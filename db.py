@@ -1,6 +1,8 @@
 import os
 import sqlite3
-
+import logging
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.WARNING)
 import cv2 as cv
 import numpy as np
 
@@ -14,7 +16,7 @@ class Cfg(Config):
     out_folder = f'../tmp/out'
     log_folder = f'../tmp/res_preproc'
     verbose = 2
-    db_path = f'../sql/test'
+    db_path = f'../sql/thermo.sql'
     images_subfolder = 'images'  # images subfolder in {out_folder}
 
 
@@ -41,28 +43,40 @@ class Db:
             cls.connect()
 
     @classmethod
+    def select_many(cls, query, query_arg, record_ntuple, empty_ok=True):
+        cls.check_conn()
+        cls.cur.execute(query, query_arg)
+        result = cls.cur.fetchall()
+        if not len(result) and empty_ok is False:
+            logger.error(f'Error:: records for {query}({query_arg}) !!!')
+            return None
+        res_tup_list = [tuple(r) for r in result]
+        res = [record_ntuple(*r) for r in res_tup_list]
+        return res
+
+    @classmethod
     def get_meters_from_db(cls, qr_code):
         # stub_meter = (1, (36, -198))  # meter_id, (offset_x,offset_y)
         cls.check_conn()
         cls.cur.execute('select * from Marks where code=?', (qr_code.decode('utf-8'),))
         result = cls.cur.fetchall()
         if not len(result):
-            Debug.error(f'Error:: Unknown code {qr_code} !!!')
+            logger.error(f'Error:: Unknown code {qr_code} !!!')
             return None
         mark_id = int(result[0]["mark_id"])
 
         cls.cur.execute('select * from Meters where mark_id=?', (mark_id,))
         result = cls.cur.fetchall()
         if not len(result):
-            Debug.error(f'Error:: No meters in db for mark_id = {mark_id} (code {qr_code}) !!!')
+            logger.error(f'Error:: No meters in db for mark_id = {mark_id} (code {qr_code}) !!!')
             return None
         meters = [(rec["meter_id"], rec["offset_x"], rec["offset_y"]) for rec in result]
-        Debug.print(f'Get meters from db: code={qr_code},  mark_id={mark_id}, meters={meters}')
+        logger.info(f'Get meters from db: code={qr_code},  mark_id={mark_id}, meters={meters}')
         return meters
 
     @classmethod
     def save_reading_to_db(cls, dtime, meter_id, image_id, temperature):
-        print('save reading to db: ', dtime, meter_id, image_id, temperature)
+        logger.info(f'save reading to db: {dtime}, {meter_id}, {image_id}, {temperature}')
         cls.check_conn()
         cls.cur.execute('insert into Readings values (?, ?, ?, ?)',
                         (Misc.dtime_to_str(dtime), meter_id, image_id, temperature))
@@ -70,7 +84,7 @@ class Db:
 
     @classmethod
     def save_images_to_db(cls, dtime_str, flir_img_fname, visual_img_fname, thermal_np_fname):
-        print('save images to db: ', dtime_str, flir_img_fname, visual_img_fname, thermal_np_fname)
+        logger.info(f'save images to db: {dtime_str}, {flir_img_fname}, {visual_img_fname}, {thermal_np_fname}')
         cls.check_conn()
         cls.cur.execute('insert into Images '
                         '(datetime, flir_fname, vis_fname, therm_fname)'
@@ -108,7 +122,7 @@ class ImageFiles:
         np.save(f'{Cfg.out_folder}/{thermal_np_fname}', thermal_np)
         image_id = Db.save_images_to_db(dtime_str,
                                         flir_img_fname, visual_img_fname, thermal_np_fname)
-        print(f'save images {folder_path}: {dtime_str}, image_id = {image_id}')
+        logger.info(f'save images {folder_path}: {dtime_str}, image_id = {image_id}')
         return image_id
 
     @staticmethod

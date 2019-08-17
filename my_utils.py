@@ -1,9 +1,13 @@
 import os
 import math
 import sys
-import inspect
 import statistics
 import datetime
+import logging
+
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.WARNING)
+import shutil
 
 import cv2 as cv
 import numpy as np
@@ -12,27 +16,28 @@ import colors
 
 
 class Debug:
+    log_level = logging.INFO
     fname_path = None
     log_folder = None
-    verbose = False  # 0/False - no debug, 1/True - debug, 2 - verbose debug
+    log_file = None
+    # log_image_set = False  # 0/False - no debug, 1/True - debug, 2 - verbose debug
+    log_image_set = True  # save log images to log_folder if True
 
     @classmethod
-    def set_log_image_names(cls, cur_fname_path, log_folder, verbose=False):  # пока оставил для qr_gen.py ***
+    def set_log_image_names(cls, cur_fname_path):  # пока оставил для qr_gen.py ***
         cls.fname_path = cur_fname_path
-        cls.log_folder = log_folder
-        cls.verbose = verbose
+        # cls.log_folder = log_folder
 
     @classmethod
-    def set_params(cls, log_folder=None, input_file=None, verbose=None):
-        if cls.verbose:
-            Debug.print(f'Debug set params: '
-                        f'log_folder={log_folder}, input={input_file}, verbose = {verbose}')
+    def set_params(cls, log_folder=None, input_file=None, log_image=None):
         if log_folder is not None:
+            shutil.rmtree(log_folder, ignore_errors=True)
+            os.makedirs(log_folder, exist_ok=True)
             cls.log_folder = log_folder
         if input_file is not None:
             cls.fname_path = input_file
-        if verbose is not None:
-            cls.verbose = verbose
+        if log_image is not None:
+            cls.log_image_set = log_image
 
     @classmethod
     def log_image(cls, img_name, image=None):
@@ -43,20 +48,10 @@ class Debug:
             img = image
         # if cls.verbose >= 1:
         cv.imwrite(save_file_name, img)
-        if cls.verbose > 1:
-            print(f'{img_name} (shape={img.shape})saved to {save_file_name}')
+        if cls.log_image_set:
+            logger.debug(f'{img_name} (shape={img.shape})saved to {save_file_name}')
 
-    @classmethod
-    def error(cls, message):
-        print(f'ERROR!!! in func {inspect.stack()[1].function}: {message}')
-
-    @classmethod
-    def print(cls, message, verbose_level=None):
-        if verbose_level is None:
-            verbose_level = 1
-        if verbose_level <= cls.verbose:
-            print(message)
-
+# x - column, y - row.  Attention we use (x,y) for cv, but [y,x] for [] and numpy
 
 class KeyPoint:
     def __init__(self, x=None, y=None, size=0, xy=None, blob_detector_keypoint=None, ):
@@ -104,54 +99,56 @@ class KeyPoint:
 
     def draw_beam(self, kp2, label, image, color=colors.BGR_CYAN):
         cv.line(image, (self.x, self.y), (kp2.x, kp2.y), color, 2)
-        self.draw(image,label)
+        self.draw(image, label)
 
     @staticmethod
-    def xy_to_offset(xy,anchor):
+    def xy_to_offset(xy, anchor):
         # kp = KeyPoint(100, 100)
         # kp1 = KeyPoint(200, 100)   # x-axis
         # kp2 = KeyPoint(100, 200)
         # xy = (150,125)
         kp, kp1, kp2 = anchor
-        ang = kp.angle(kp1,kp2)
-        if ang > 0:  # swap kp1,2 to get kp2 pointed to x-axis in (kp1,kp,kp2) axes
-            kp2,kp1 = kp1,kp2
+        ang = kp.angle(kp1, kp2)
+        if ang < 0:  # swap kp1,2 to get kp2 pointed to x-axis in (kp1,kp,kp2) axes
+            kp2, kp1 = kp1, kp2
 
-        kp2_projx = KeyPoint(x=kp2.x,y=kp.y)
-        ang2 = kp.angle(kp2_projx,kp2)  # angle between (kp,kp2) and image's x-axis
+        kp2_projx = KeyPoint(x=kp2.x, y=kp.y)
+        ang2 = kp.angle(kp2, kp2_projx)  # angle between (kp,kp2) and image's x-axis
 
         mat = cv.getRotationMatrix2D(kp.xy(), ang2, 1.0)
-        src = np.array([[[xy[0],xy[1]]]])
-        res = cv.transform(src,mat)[0][0]   # rotate
-        res = (res[0]-kp.x,res[1]-kp.y)     # shift
-        res = (res[0]/kp.distance(kp2), res[1]/kp.distance(kp1))  # scale, kp2 - x-axis, kp1 - y-axis
+        src = np.array([[[xy[0], xy[1]]]])  # !! x-->1, y-->0
+        res = cv.transform(src, mat)[0][0]  # rotate
+
+        res = (res[0] - kp.x, res[1] - kp.y)  # shift
+        res = (res[0] / kp.distance(kp2), res[1] / kp.distance(kp1))  # scale, kp2 - x-axis, kp1 - y-axis
         # print(res)
         return tuple(res)
 
     @staticmethod
-    def offset_to_xy(offset,anchor):
+    def offset_to_xy(offset, anchor):
         kp, kp1, kp2 = anchor
-        ang = kp.angle(kp1,kp2)
-        # if ang > 0:  # swap kp1,2 to get kp2 pointed to x-axis in (kp1,kp,kp2) axes
-        #     Debug.print(f'Axis swap in offset_to_xy: {kp1} <--> {kp2}, angle={ang}',verbose_level=2)
-        #     kp2,kp1 = kp1,kp2
-        offset = (offset[0]*kp.distance(kp2), offset[1]*kp.distance(kp1))  # scale
-        offset = (offset[0]+kp.x, offset[1]+kp.y)  # shift
+        ang = kp.angle(kp1, kp2)
+        if ang < 0:  # swap kp1,2 to get kp2 pointed to x-axis in (kp1,kp,kp2) axes
+            logger.debug(f'Axis swap in offset_to_xy: {kp1} <--> {kp2}, angle={ang}')
+            kp2, kp1 = kp1, kp2
+        scaled = (offset[0] * kp.distance(kp2), offset[1] * kp.distance(kp1))  # scale
+        shifted = (scaled[0] + kp.x, scaled[1] + kp.y)  # shift
 
-        kp2_projx = KeyPoint(x=kp2.x,y=kp.y)
-        ang2 = kp.angle(kp2,kp2_projx)  # angle between (kp,kp2) and image's x-axis
-
+        kp2_projx = KeyPoint(x=kp2.x, y=kp.y)
+        if kp2_projx.x < kp.x:
+            kp2_projx.x = kp.x + abs(kp.x - kp2_projx.x)  # x-axis should run to positive after rotation
+        ang2 = kp.angle(kp2_projx, kp2)  # angle between (kp,kp2) and image's x-axis
         mat = cv.getRotationMatrix2D(kp.xy(), ang2, 1.0)
-        src = np.array([[[offset[0],offset[1]]]])
-        res = cv.transform(src,mat)[0][0]   # rotate
-        return int(res[0]),int(res[1])
+
+        src = np.array([[[shifted[0], shifted[1]]]])
+        res = cv.transform(src, mat)[0][0]  # rotate
+        return int(res[0]), int(res[1])
 
     @staticmethod
     def check_xy_bound(xy, image):
         # supposing x is ..[*:], y ... is [:*]  (cv2-like, not numpy-like)
-        return True if (0 <= xy[0] < image.shape[0]) and (0 <= xy[1] < image.shape[1]) \
-                    else False
-
+        return True if (0 <= xy[0] < image.shape[1]) and (0 <= xy[1] < image.shape[0]) \
+            else False
 
     # @staticmethod
     # def xy_to_offset(xy,anchor):
@@ -213,8 +210,8 @@ class KeyPoint:
     @staticmethod
     def fit_to_shape(keypoints_tuple, shape):
         # return new tuple of keypoints where all x,y are in range (0:shape[0],0:shape[1]
-        xmax = shape[0] - 1
-        ymax = shape[1] - 1
+        xmax = shape[1] - 1
+        ymax = shape[0] - 1
         return tuple(KeyPoint(x=min(xmax, max(0, kp.x)), y=min(ymax, max(0, kp.y)), size=kp.size)
                      for kp in keypoints_tuple)
 
@@ -278,10 +275,11 @@ class MyMath:
     @staticmethod
     def angle(kp1: KeyPoint, kp2: KeyPoint, kp3: KeyPoint):
         # return andgle (in degrees) between [kp2,kp1] and [kp2,kp3]. I.e angle at kp2 in triangle (kp1,kp2,kp3)
-        v0 = np.array([kp1.x, kp1.y]) - np.array([kp2.x, kp2.y])
-        v1 = np.array([kp3.x, kp3.y]) - np.array([kp2.x, kp2.y])
+        v0 = np.array([kp1.y, kp1.x]) - np.array([kp2.y, kp2.x])
+        v1 = np.array([kp3.y, kp3.x]) - np.array([kp2.y, kp2.x])
         angle = np.math.atan2(np.linalg.det([v0, v1]), np.dot(v0, v1))
         return np.degrees(angle)
+
 
 class Misc:
 
@@ -295,19 +293,20 @@ class Misc:
 
 
 if __name__ == '__main__':
-    kp = KeyPoint(200,100)
-    kp1 = KeyPoint(100,200)
-    kp2 = KeyPoint(300,200)
+    kp = KeyPoint(200, 100)
+    kp1 = KeyPoint(100, 200)
+    kp2 = KeyPoint(300, 200)
 
-    new_kp = KeyPoint(500,200)
-    new_kp1 = KeyPoint(700,400)
-    new_kp2 = KeyPoint(700,0)
+    new_kp = KeyPoint(500, 200)
+    new_kp1 = KeyPoint(700, 400)
+    new_kp2 = KeyPoint(700, 0)
 
     # xy = (130,105)
-    for xy in [kp.xy(),kp1.xy(),kp2.xy(),(400,300),(200,300),(300,100),(100,100),(200,0),(300,300)]:
-        new_xy = KeyPoint.xy_to_offset(xy,(kp,kp1,kp2))
-        inv_xy = KeyPoint.offset_to_xy(new_xy,(new_kp,new_kp1,new_kp2))
+    for xy in [kp.xy(), kp1.xy(), kp2.xy(), (400, 300), (200, 300), (300, 100), (100, 100), (200, 0), (300, 300)]:
+        offs_xy = KeyPoint.xy_to_offset(xy, (kp, kp1, kp2))
+        inv_xy = KeyPoint.offset_to_xy(offs_xy, (new_kp, new_kp1, new_kp2))
         print(f'xy={xy[0]:.0f},{xy[1]:.0f}    '
-              f'new={new_xy[0]:.0f},{new_xy[1]:.0f}   '
+              f'offset={offs_xy[0]:.0f},{offs_xy[1]:.0f}   '
               f'inv={inv_xy[0]:.0f},{inv_xy[1]:.0f}')
 
+    ang = MyMath.angle(kp1, kp, kp2)

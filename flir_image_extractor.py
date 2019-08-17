@@ -11,13 +11,17 @@ import os.path
 import re
 import csv
 import subprocess
+import logging
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.WARNING)
+
 from PIL import Image
 from math import sqrt, exp, log
 from matplotlib import cm
 from matplotlib import pyplot as plt
-
 import numpy as np
 
+from my_utils import Debug
 
 class FlirImageExtractor:
 
@@ -60,7 +64,11 @@ class FlirImageExtractor:
 
         self.rgb_image_np = self.extract_embedded_image()
         if not skip_thermal:
-            self.thermal_image_np = self.extract_thermal_image()
+            try:
+                self.thermal_image_np = self.extract_thermal_image()
+            except ValueError:
+                logger.error(f'ValueError while converting to thermal file {self.flir_img_filename}')
+                raise ValueError
 
     def get_image_type(self):
         """

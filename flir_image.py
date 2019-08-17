@@ -1,6 +1,9 @@
 import glob
 import os
 import datetime
+import logging
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.WARNING)
 
 import cv2 as cv
 import numpy as np
@@ -70,7 +73,7 @@ class FlirImage:
         return image
 
     def point_temperature(self, therm_point_xy):
-        return self.thermal_np[therm_point_xy[0], therm_point_xy[1]]  # **** check it ****
+        return self.thermal_np[therm_point_xy[1], therm_point_xy[0]]  # x-->1, y-->0
 
     def save_visual_old(self, folder_to_save=None, prefix='', vis_suffix='_v.jpg'):
         path, fname = os.path.split(self.fname_path)
