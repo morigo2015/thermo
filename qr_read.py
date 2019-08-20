@@ -257,7 +257,7 @@ class QrDecode:
                 continue
 
             if len(pyzbar_objs) > 1:
-                logger.warning(f'Multiple codes ({len(pyzbar_objs)}) found in area {ind}')
+                logger.info(f'Multiple codes ({len(pyzbar_objs)}) found in area {ind}')
                 # skip it, definitely they should be found separately
                 continue
 

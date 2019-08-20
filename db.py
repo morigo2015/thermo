@@ -1,14 +1,13 @@
 import os
 import sqlite3
 import logging
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.WARNING)
 import cv2 as cv
 import numpy as np
 
 from config import Config
 from my_utils import Misc
 
+logger = logging.getLogger('thermo.'+__name__)
 
 class Cfg(Config):
     inp_folders = f'../data/tests/rot*'  #
@@ -135,15 +134,15 @@ class ImageFiles:
         thermal_np = np.load(f'{Cfg.out_folder}/{thermal_np_fname}',allow_pickle=True)
         return dtime_str, flir_img, visual_img, thermal_np
 
+import collections
 
 if __name__ == '__main__':
 
     # Db.connect()
-
-    dtime_str, flir_img, visual_img, thermal_np = ImageFiles.load(4)
-    cv.imwrite('../tmp/flir_img.jpg',flir_img)
-    cv.imwrite('../tmp/visual_img.jpg',visual_img)
-    print(f'dtime = {dtime_str} thermal_np shape = {thermal_np.shape}')
-    # print([m for m in Db.get_meters_from_db(b'1000001')])
+    ReadingShortRecord = collections.namedtuple('ReadingShortRecord','dtime, meter_id, temperature')
+    readings = Db.select_many('select * from readings_short order by datetime',(),ReadingShortRecord)
+    print(len(readings))
+    for r in readings:
+        print(tuple(r))
 
     # Db.close()

@@ -20,13 +20,14 @@ logger = logging.getLogger('thermo.'+'metering')
 
 
 class Cfg(Config):
-    inp_folders = f'../data/tests/door-autocalibr/long-ideal-2/'  #
-    inp_fname_mask = f'*446.jpg'  # 512 0909 3232
+    inp_folder = f'../data/tests/door-autocalibr/calibr_curve/'  #
+    inp_fname_mask = f'*.jpg'  # 512 0909 3232 446
     csv_file = f'../tmp/metering.csv'
     log_folder = f'../tmp/res_preproc'
     log_file = f'../tmp/debug.log'
     # log_level = logging.DEBUG  # INFO DEBUG WARNING
     log_image = True
+    need_sync = True  # sync: run rclone, then move from .../FLIR to inp_folders
 
 
 class Reading:
@@ -123,6 +124,8 @@ def take_readings(fname_path_flir):
             reading_cnt += 1
     return reading_cnt
 
+def sync_meterings():
+    pass
 
 def main():
     logger.debug('metering - start')
@@ -132,7 +135,7 @@ def main():
     # Db.connect()
     start = datetime.datetime.now()
 
-    for folder in sorted(glob.glob(f'{Cfg.inp_folders}')):
+    for folder in sorted(glob.glob(f'{Cfg.inp_folder}')):
         if not os.path.isdir(folder):
             continue
 
@@ -148,7 +151,10 @@ def main():
         # print(f'Folder {folder}: {files_cnt} files processed')
 
     seconds = (datetime.datetime.now() - start).seconds
-    print(f'Total time = {seconds:.0f}s   average={seconds/(files_cnt+1):.0f}s per file')
+    if not files_cnt:
+        print(f'no files processed. folders={Cfg.inp_folder} files mask={Cfg.inp_fname_mask}')
+    else:
+        print(f'Total time = {seconds:.0f}s   average={seconds/(files_cnt+1):.0f}s per file')
 
     Db.close()
 
