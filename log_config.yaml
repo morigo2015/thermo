@@ -18,25 +18,20 @@ handlers:
     filename: ../tmp/test.log
     mode: w
     formatter: extended
-#    propagate: false
 
 loggers:
-  my_utils:
-    level: WARNING
+  thermo:
+    level: WARNING # INFO #
     handlers: [console, file_handler]
-    propagate: False
-  metering:
-    level: WARNING
-    handlers: [console, file_handler]
-    propagate: False
-  qr_read:
-    level: WARNING
-    handlers: [console, file_handler]
-    propagate: False
-  __main__:
-    level: DEBUG
-    handlers: [console, file_handler]
-    propagate: False
+
+#  thermo.my_utils:
+#    level: INFO # WARNING #
+#  thermo.metering:
+#    level:  INFO # WARNING #
+#  thermo.qr_read:
+#    level: DEBUG # INFO # WARNING #
+#  thermo.__main__:
+#    level: INFO # WARNING #
 
 root:
-  handlers: # [file_handler]
+  handlers:

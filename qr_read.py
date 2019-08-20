@@ -31,7 +31,8 @@ from box import Box
 from my_utils import Debug, KeyPoint, KeyPointList, MyMath
 from config import Config
 
-logger = logging.getLogger('qr_read')
+logger = logging.getLogger('thermo.'+'qr_read')
+
 
 class Cfg(Config):
     # inp_folders = f'../data/calibr/att_3/lbl_3in_curved/visual/ch*'  #
@@ -56,6 +57,7 @@ class Cfg(Config):
 
     mode = 'find_offset'  # 'find_qr'
     xy_info_file = f'../tmp/meters_xy.csv'
+    min_area_ratio = 0.4  # minimal ratio of found box area to candidates_area (more --> incorrect anchor was taken)
 
 
 class Blob:
@@ -81,7 +83,7 @@ class Blob:
         Debug.log_image('img_with_keypoints', img_with_keypoints)
 
         blob_keypoints = KeyPointList(blob_detector_keypoints_list=keypoints)
-        logger.info(f'keypoints found:{blob_keypoints}')
+        logger.debug(f'keypoints found:{blob_keypoints}')
         return blob_keypoints
 
 
@@ -120,9 +122,9 @@ class QrAnchors:
                     if not MyMath.approx_equal(kp.distance(kp1), kp.distance(kp2), Cfg.distance_tolerance): continue
                     # # skip (kp,kp1,kp2) if (kp,kp2,kp1) already exists
                     # if not qr_anchors.count((kp, kp2, kp1)) == 0: continue
-                    logger.info(f'append: {kp}, {kp1}, {kp2}')
+                    logger.debug(f'append: {kp}, {kp1}, {kp2}')
                     qr_anchors.append((kp, kp1, kp2))
-                logger.info(f'found {len(qr_anchors)} anchors: {qr_anchors}')
+                logger.debug(f'found {len(qr_anchors)} anchors: {qr_anchors}')
         return qr_anchors
 
     def draw_anchors(self):
@@ -145,19 +147,19 @@ class CandidateQrAreas:
         for ind in range(len(self.anchors)):
             anchor = self.anchors[ind]
             kp, kp1, kp2 = anchor
-            if Cfg.area_preparing_method == 'warp_affine':  # todo remove, it's just a test
-                # Extract subregion of qr_area from the entire image
-                qr_area = self.get_subimage_warp(anchor, self.image)
-                Debug.log_image('area_after_warp', qr_area)
-            else:  # method=='subimage': find 4th corner -> stretch -> fit_to_shape -> crop
-                # find 4th point
-                kp4 = kp.find_4th_corner(kp1, kp2)  # 3 squares --> 4th square
-                # rectangle of 4 square centers --> qr_area rectangle
-                corners = KeyPoint.expand(kp1, kp, kp2, kp4, Cfg.expand_ratio)
-                # correct corners which are out of image (after stretching)
-                qr_area_keypoints = KeyPoint.fit_to_shape(corners, self.image.shape)
-                # Extract subregion of qr_area from the entire image
-                qr_area = KeyPoint.get_subimage(qr_area_keypoints, self.image)
+            # # if Cfg.area_preparing_method == 'warp_affine':  # todo remove, it's just a test
+            # #     # Extract subregion of qr_area from the entire image
+            # #     qr_area = self.get_subimage_warp(anchor, self.image)
+            # #     Debug.log_image('area_after_warp', qr_area)
+            # else:  # method=='subimage': find 4th corner -> stretch -> fit_to_shape -> crop
+            # find 4th point
+            kp4 = kp.find_4th_corner(kp1, kp2)  # 3 squares --> 4th square
+            # rectangle of 4 square centers --> qr_area rectangle
+            corners = KeyPoint.expand(kp1, kp, kp2, kp4, Cfg.expand_ratio)
+            # correct corners which are out of image (after stretching)
+            qr_area_keypoints = KeyPoint.fit_to_shape(corners, self.image.shape)
+            # Extract subregion of qr_area from the entire image
+            qr_area, center, size, theta = self.get_subimage(qr_area_keypoints, self.image)
             # make otsu binarization if ordered in Cfg
             if Cfg.use_otsu_threshold:
                 blur = cv.GaussianBlur(qr_area, (5, 5), 0)
@@ -166,50 +168,74 @@ class CandidateQrAreas:
                 candidate_area = qr_area
             # set axis info (cross_x,cross_y,xaxis_angle)
             Debug.log_image(f'finished_{ind}', candidate_area)
-            self.candidate_qr_areas.append(candidate_area)
+            self.candidate_qr_areas.append((candidate_area, center, size, theta))
 
-    @staticmethod
-    def get_subimage_warp(anchor, image):
-        pts_from = np.float32([(kp.x, kp.y) for kp in anchor])
-        # set distance from the center of big square to the nearest edge of qr-code area
-        square_center_dist = Cfg.qr_blank_width + 7 / 2
-        pts_to = np.float32([[square_center_dist, square_center_dist],
-                             [square_center_dist, Cfg.qr_side_with_blanks - square_center_dist],
-                             [Cfg.qr_side_with_blanks - square_center_dist, square_center_dist]])
-        pts_to *= Cfg.qr_module_size
+    def get_subimage(self, keypoints, image):
+        # keypoints --> aligned (rotated to horizontal/vertical) sub image
+        qr_area_contour = np.array([(kp.x, kp.y) for kp in keypoints], dtype=np.int32)
+        # convert qr_area_corners to cv.Box2D: ( (center_x,center_y), (width,height), angle of rotation)
+        rect = cv.minAreaRect(qr_area_contour)  # get Box2D for rotated rectangle
+        # Get center, size, and angle from rect
+        center, size, theta = rect
+        # Convert to int
+        center, size = tuple(map(int, center)), tuple(map(int, size))
+        # Get rotation matrix for rectangle
+        rot_matrix = cv.getRotationMatrix2D(center, theta, 1)
+        # Perform rotation on src image
+        dst = cv.warpAffine(image, rot_matrix, image.shape[:2])
+        out = cv.getRectSubPix(dst, size, center)
+        return out, center, size, theta
 
-        total_side_pix = Cfg.qr_side_with_blanks * Cfg.qr_module_size
-        border_pix = Cfg.qr_blank_width * Cfg.qr_module_size
-
-        mat = cv.getAffineTransform(pts_from, pts_to)
-        qr_area = cv.warpAffine(image, mat, (total_side_pix, total_side_pix), None, cv.INTER_AREA,
-                                cv.BORDER_CONSTANT, colors.BGR_WHITE)
-
-        # color to fill cleaned blanks (to be similar to main image)
-        border_color = qr_area[
-            border_pix - Cfg.qr_module_size, border_pix - Cfg.qr_module_size]
-        # make mask: 255 at border, 0 at qr code (between big squares)
-        mask = np.ones((total_side_pix, total_side_pix), dtype=np.uint8)  # * 255
-        mask[border_pix - Cfg.qr_module_size * 2:total_side_pix - border_pix + Cfg.qr_module_size * 2,
-        border_pix - Cfg.qr_module_size * 2:total_side_pix - border_pix + Cfg.qr_module_size * 2] = 0
-        # apply mask to qr_area (to clean background if qr code is curved)
-        qr_area[mask == 1] = border_color
-        return qr_area
+    # @staticmethod
+    # def get_subimage_warp(anchor, image):
+    #     pts_from = np.float32([(kp.x, kp.y) for kp in anchor])
+    #     # set distance from the center of big square to the nearest edge of qr-code area
+    #     square_center_dist = Cfg.qr_blank_width + 7 / 2
+    #     pts_to = np.float32([[square_center_dist, square_center_dist],
+    #                          [square_center_dist, Cfg.qr_side_with_blanks - square_center_dist],
+    #                          [Cfg.qr_side_with_blanks - square_center_dist, square_center_dist]])
+    #     pts_to *= Cfg.qr_module_size
+    #
+    #     total_side_pix = Cfg.qr_side_with_blanks * Cfg.qr_module_size
+    #     border_pix = Cfg.qr_blank_width * Cfg.qr_module_size
+    #
+    #     mat = cv.getAffineTransform(pts_from, pts_to)
+    #     qr_area = cv.warpAffine(image, mat, (total_side_pix, total_side_pix), None, cv.INTER_AREA,
+    #                             cv.BORDER_CONSTANT, colors.BGR_WHITE)
+    #
+    #     # color to fill cleaned blanks (to be similar to main image)
+    #     border_color = qr_area[
+    #         border_pix - Cfg.qr_module_size, border_pix - Cfg.qr_module_size]
+    #     # make mask: 255 at border, 0 at qr code (between big squares)
+    #     mask = np.ones((total_side_pix, total_side_pix), dtype=np.uint8)  # * 255
+    #     mask[border_pix - Cfg.qr_module_size * 2:total_side_pix - border_pix + Cfg.qr_module_size * 2,
+    #     border_pix - Cfg.qr_module_size * 2:total_side_pix - border_pix + Cfg.qr_module_size * 2] = 0
+    #     # apply mask to qr_area (to clean background if qr code is curved)
+    #     qr_area[mask == 1] = border_color
+    #     return qr_area
 
 
 class QrMark:
     # extended item from pyzabar.decode() list
 
-    def __init__(self, pyzbar_obj, area, anchor):
+    def __init__(self, pyzbar_obj, area, anchor, anchor_ind, center, size, theta):
         self.code = pyzbar_obj.data
         self.area = area
+        self.center, self.size, self.theta = center, size, theta
         self.anchor = anchor
         self.rect = pyzbar_obj.rect
-        self.box = Box(corners=(self.rect.left, self.rect.top, self.rect.width, self.rect.height))
+        self.box = Box(corners=(self.rect.left, self.rect.top,
+                                self.rect.left + self.rect.width, self.rect.top + self.rect.height), flip_ok=True)
+        self.box_area = self.box.area()
+        if self.box_area == 0:
+            logger.warning(f'created mark with zero box_area: ind={anchor_ind} box={self.box}')
+        self.anchor_ind = anchor_ind
 
-    def draw_box(self, image, color=colors.BGR_GREEN):
-        cv.rectangle(image,
-                     (self.box.startX, self.box.startY), (self.box.endX, self.box.endY), color, cv.FILLED)
+    def draw_box(self, area_image, color=colors.BGR_GREEN):
+        area_image = cv.cvtColor(area_image, cv.COLOR_GRAY2BGR)
+        cv.rectangle(area_image,
+                     (self.box.startX, self.box.startY), (self.box.endX, self.box.endY), color)
+        return area_image
 
     def __repr__(self):
         return f'{self.__class__.__name__}({self.code},{self.box}'  # ,{self.polygon})'
@@ -225,8 +251,7 @@ class QrDecode:
         # areas --> qr_decoded_marks:
         marks = []
         for ind in range(len(self.areas)):
-            area = self.areas[ind]
-            Debug.log_image(f'{ind}_area', area)
+            area, center, size, theta = self.areas[ind]
             pyzbar_objs = pyzbar.decode(area)
             if not len(pyzbar_objs):
                 continue
@@ -236,27 +261,35 @@ class QrDecode:
                 # skip it, definitely they should be found separately
                 continue
 
-            mark = QrMark(pyzbar_objs[0], self.areas[ind], self.anchors[ind])
+            mark = QrMark(pyzbar_objs[0], area, self.anchors[ind], ind, center, size, theta)
+            if self.area_ratio(mark, area, ind) < Cfg.min_area_ratio:
+                logger.debug(f'found box area ratio is too small relatively to CandidateArea. Skipped. ind={ind}')
+                continue
+
             marks.append(mark)
-            Debug.log_image(f'found_{ind}_{mark.code}', area)
+            Debug.log_image(f'found_{ind}_{mark.code}', mark.draw_box(area))
+            # Debug.log_image(f'found_area_{ind}_{mark.code}', area)
 
         # duplicates rarely created if several triplets looks like anchor while referencing to the same qr code area
         # remove duplicates from marks:
         # for equal codes take one with the minimal area
         uniq_codes = list(set([m.code for m in marks]))  # list of unique codes from marks
-        code_minareas = [(c, min([m.box.area() for m in marks if m.code == c]))
+        code_minareas = [(c, min([m.box_area for m in marks if m.code == c]))
                          for c in uniq_codes]  # list of tuples (code, min area for all marks with this code)
         # get items from marks which have minimal area for each uniq code
         self.qr_decoded_marks = [m for m in marks if (m.code, m.box.area()) in code_minareas]
 
-        # self.qr_decoded_marks = []
-        # for inp_m in marks:
-        #     # if several marks are found with the same code, take the one with minimal area
-        #     if all([not inp_m.code == out_m.code for out_m in
-        #             self.qr_decoded_marks]):  # no items in final list are near
-        #         self.qr_decoded_marks.append(inp_m)
+        logger.debug(f'decoded marks list after removing duplicates:{self.qr_decoded_marks}]')
 
-        logger.info(f'decoded marks list after removing duplicates:{self.qr_decoded_marks}]')
+    @staticmethod
+    def area_ratio(mark, area, ind):
+        mark_area = mark.box_area
+        area_area = area.shape[0] * area.shape[1]
+        if area_area < 10:
+            logger.error(f'area ratio: area of candidate_area is too small({area_area}), '
+                         f'ind={ind}, code={mark.code}')
+            return 9999
+        return mark_area / area_area
 
     @staticmethod
     def get_all_qrs(image):
@@ -366,14 +399,14 @@ def main_find_offset():
     print('offsets:\n\t', '\n\t'.join([f'{m.meter_id} : {m.file_name} : ({m.off_x:.5f},{m.off_y:.5f})  '
                                        f'xy:({m.x},{m.y})' for m in offsets if m.off_x != 9999.]), sep='')
 
-    for meter_id in sorted(list(set([off.meter_id for off in offsets])),key=lambda x: int(x)):
+    for meter_id in sorted(list(set([off.meter_id for off in offsets])), key=lambda x: int(x)):
         lst = [(m.off_x, m.off_y) for m in offsets if m.meter_id == meter_id and m.off_x != 9999]
-        xy = [[l[i] for l in lst] for i in [0,1]]
+        xy = [[l[i] for l in lst] for i in [0, 1]]
         # avg = (statistics.mean([l[0] for l in lst]), statistics.mean([l[0] for l in lst]))
         avg = (statistics.mean(xy[0]), statistics.mean(xy[1]))
         min_v = (min(xy[0]), min(xy[1]))
         max_v = (max(xy[0]), max(xy[1]))
-        diff = (max_v[0]-min_v[0], max_v[1]-min_v[1])
+        diff = (max_v[0] - min_v[0], max_v[1] - min_v[1])
         print(f'meter_id={meter_id} '
               f'avg=({avg[0]: .5f},{avg[1]: .5f}) '
               f'min=({min_v[0]: .5f},{min_v[1]: .5f}) '

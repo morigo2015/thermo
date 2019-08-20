@@ -7,7 +7,7 @@ class Box:
     def __init__(self, startX=None, startY=None, endX=None, endY=None,
                  sides=None,  # sides-order (top,right,bottom,left)
                  corners=None,  # corners-order  (startX,startY,endX,endY)
-                 box=None):
+                 box=None, flip_ok=False):
         """
         create new box based on corners coordinates or corner-order string
         """
@@ -29,6 +29,12 @@ class Box:
             # self.is_empty = box.is_empty
         else:
             print('!!!!! error while initializing Box !!!!!! ')
+        if flip_ok:
+            if self.startX > self.endX:
+                self.startX, self.endX = self.endX, self.startX
+            if self.startY > self.endY:
+                self.startY, self.endY = self.endY, self.startY
+
 
     def __repr__(self):
         return f'box(({self.startX},{self.startY}),({self.endX},{self.endY}))'

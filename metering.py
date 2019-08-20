@@ -9,21 +9,23 @@ import logging
 
 import cv2 as cv
 
-from my_utils import Debug, KeyPoint
+from my_utils import Debug, KeyPoint, Misc
 from config import Config
 from qr_read import QrDecode
 from flir_image import FlirImage
 from db import Db
 import colors
 
-logger = logging.getLogger('metering')
+logger = logging.getLogger('thermo.'+'metering')
+
 
 class Cfg(Config):
-    inp_folders = f'../data/tests/door-autocalibr/long-noturnoff-ideal-calibr/'  #
-    inp_fname_mask = f'*3232.jpg'  # 512 0909
+    inp_folders = f'../data/tests/door-autocalibr/long-ideal-2/'  #
+    inp_fname_mask = f'*446.jpg'  # 512 0909 3232
+    csv_file = f'../tmp/metering.csv'
     log_folder = f'../tmp/res_preproc'
     log_file = f'../tmp/debug.log'
-    log_level = logging.DEBUG  # INFO DEBUG WARNING
+    # log_level = logging.DEBUG  # INFO DEBUG WARNING
     log_image = True
 
 
@@ -39,6 +41,11 @@ class Reading:
     def save_to_db(self):
         Db.save_reading_to_db(self.flir_image.datetime, self.meter_id,
                               self.flir_image.image_id, self.temperature)
+
+    def save_to_csv(self):
+        with open(Cfg.csv_file, 'a') as f:
+            dtime = Misc.dtime_to_csv_str(self.flir_image.datetime)
+            f.write(f'{dtime}\t{self.meter_id}\t{self.temperature:.2f}\n')
 
     def draw_temp(self, image, xy):
         cv.circle(image, xy, 10, colors.BGR_GREEN, 2)
@@ -58,12 +65,12 @@ class Reading:
         visual_xy = KeyPoint.offset_to_xy(offset, anchor)
         if not KeyPoint.check_xy_bound(visual_xy, fi.visual_img):
             logger.error(f'offset({offset})-->{visual_xy} which is not in range for mark {qr_mark.code}'
-                        f'for visual image of {fi.fname_path}')
+                         f'for visual image of {fi.fname_path}')
             return None, None, None
         thermo_xy = fi.visual_xy_to_therm(visual_xy)
         if not KeyPoint.check_xy_bound(thermo_xy, fi.thermal_np):
             logger.error(f'visual_xy_to_therm({visual_xy}) --> {thermo_xy} '
-                        f'which is not in range for thermal image of {fi.fname_path}')
+                         f'which is not in range for thermal image of {fi.fname_path}')
             return None, None, None
         logger.debug(f'read temper:  {offset}, {visual_xy}, {thermo_xy}')
         temperature = fi.point_temperature(thermo_xy)
@@ -97,16 +104,20 @@ def take_readings(fname_path_flir):
             if offset_x == 9999.:
                 continue
             logger.debug(f'take readings: meter_id={meter_id}: ')
+
             reading = Reading(meter_id, (offset_x, offset_y), qr_mark, fi)
+
             if reading.temperature is None:
                 logger.error(f'cannot create Reading '
-                            f'for meter_id={meter_id} offset=({offset_x},{offset_y}) '
-                            f'due to illegal coordinates after offset_to_xy()')
+                             f'for meter_id={meter_id} offset=({offset_x},{offset_y}) '
+                             f'due to illegal coordinates after offset_to_xy()')
                 continue
+            reading.save_to_db()
+            reading.save_to_csv()
+
             logger.info(reading)
             reading.draw_visual(visual_img_copy)
             reading.draw_thermal(thermal_img_copy)
-            reading.save_to_db()
             Debug.log_image('visual_read', visual_img_copy)
             Debug.log_image('thermal_read', thermal_img_copy)
             reading_cnt += 1
@@ -114,7 +125,10 @@ def take_readings(fname_path_flir):
 
 
 def main():
+    logger.debug('metering - start')
     Debug.set_params(log_folder=Cfg.log_folder, log_image=Cfg.log_image)
+    with open(Cfg.csv_file, 'w') as f:
+        f.write(f'datetime\tmeter_id\ttemperature\n')
     # Db.connect()
     start = datetime.datetime.now()
 
@@ -129,11 +143,11 @@ def main():
 
             cnt = take_readings(fname_path_flir)
 
-            print(f'{files_cnt} of {len(files_list)}: {fname_path_flir} \t\t\t read_cnt={cnt}')
+            print(f'{files_cnt+1} of {len(files_list)}: {fname_path_flir} \t\t\t read_cnt={cnt}')
 
-        print(f'Folder {folder}: {files_cnt}')
+        # print(f'Folder {folder}: {files_cnt} files processed')
 
-    seconds = (datetime.datetime.now()-start).seconds
+    seconds = (datetime.datetime.now() - start).seconds
     print(f'Total time = {seconds:.0f}s   average={seconds/(files_cnt+1):.0f}s per file')
 
     Db.close()

@@ -13,7 +13,6 @@ import numpy as np
 
 import colors
 
-
 def setup_logging(default_path='log_config.yaml'):
     # Setup logging configuration
     path = default_path
@@ -24,7 +23,7 @@ def setup_logging(default_path='log_config.yaml'):
 
 
 setup_logging()
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("thermo."+__name__)
 
 
 class Debug:
@@ -188,25 +187,6 @@ class KeyPoint:
         return tuple(KeyPoint(x=min(xmax, max(0, kp.x)), y=min(ymax, max(0, kp.y)), size=kp.size)
                      for kp in keypoints_tuple)
 
-    @staticmethod
-    def get_subimage(keypoints, image):
-        # keypoints --> aligned (rotated to horizontal/vertical) sub image
-        qr_area_contour = np.array([(kp.x, kp.y) for kp in keypoints], dtype=np.int32)
-
-        # convert qr_area_corners to cv.Box2D: ( (center_x,center_y), (width,height), angle of rotation)
-        rect = cv.minAreaRect(qr_area_contour)  # get Box2D for rotated rectangle
-
-        # Get center, size, and angle from rect
-        center, size, theta = rect
-        # Convert to int
-        center, size = tuple(map(int, center)), tuple(map(int, size))
-        # Get rotation matrix for rectangle
-        rot_matrix = cv.getRotationMatrix2D(center, theta, 1)
-        # Perform rotation on src image
-        dst = cv.warpAffine(image, rot_matrix, image.shape[:2])
-        out = cv.getRectSubPix(dst, size, center)
-        return out
-
 
 class KeyPointList:
 
@@ -259,6 +239,10 @@ class Misc:
     @staticmethod
     def dtime_to_str(dtime):
         return datetime.datetime.strftime(dtime, '%Y%m%dT%H%M%S')
+
+    @staticmethod
+    def dtime_to_csv_str(dtime):
+        return datetime.datetime.strftime(dtime, '%Y-%m-%d %H:%M:%S')
 
     @staticmethod
     def str_to_dtime(dtime_str):

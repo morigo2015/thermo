@@ -7,7 +7,7 @@ import cv2 as cv
 import numpy as np
 
 from config import Config
-from my_utils import Misc, Debug
+from my_utils import Misc
 
 
 class Cfg(Config):
