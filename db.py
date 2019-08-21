@@ -33,6 +33,8 @@ class Db:
 
     @classmethod
     def close(cls):
+        if cls.conn is None:
+            return
         cls.conn.commit()
         cls.conn.close()
 

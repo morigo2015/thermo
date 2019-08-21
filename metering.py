@@ -6,6 +6,8 @@ import os
 import glob
 import datetime
 import logging
+import subprocess
+import shutil
 
 import cv2 as cv
 
@@ -20,14 +22,17 @@ logger = logging.getLogger('thermo.'+'metering')
 
 
 class Cfg(Config):
-    inp_folder = f'../data/tests/door-autocalibr/calibr_curve/'  #
+    inp_folder = f'../data/tests/door-autocalibr/distance_test3/'  #
     inp_fname_mask = f'*.jpg'  # 512 0909 3232 446
     csv_file = f'../tmp/metering.csv'
-    log_folder = f'../tmp/res_preproc'
+    log_folder = f'../tmp/res_preproc/'
     log_file = f'../tmp/debug.log'
+    sync_folder = f'/home/im/mypy/thermo/GDrive-Ihorm/FLIR'
     # log_level = logging.DEBUG  # INFO DEBUG WARNING
     log_image = True
     need_sync = True  # sync: run rclone, then move from .../FLIR to inp_folders
+    need_csv = True  # save temperature to csv file
+    sync_cmd = f'rclone move remote: {os.path.split(sync_folder)[0]}'  # remove /FLIR, it will be added by rclone
 
 
 class Reading:
@@ -125,16 +130,36 @@ def take_readings(fname_path_flir):
     return reading_cnt
 
 def sync_meterings():
-    pass
+    os.makedirs(Cfg.inp_folder,exist_ok=True)
+    logger.debug(f'sync started: sync_folder={Cfg.sync_folder} inp_folder={Cfg.inp_folder}')
+    logger.debug(f'Files: {len(os.listdir(Cfg.sync_folder))} in sync_folder, '
+                 f'{len(os.listdir(Cfg.inp_folder))} in inp_folder')
+    logger.debug(f'sync metering, cmd={Cfg.sync_cmd}')
+    os.system(Cfg.sync_cmd)
+    logger.debug(f'Files moved Gdrive --> sync_folder. '
+                 f'Files: {len(os.listdir(Cfg.sync_folder))} in sync_folder, '
+                 f'{len(os.listdir(Cfg.inp_folder))} in inp_folder')
+
+    for f in glob.glob(Cfg.sync_folder+'/*'):
+        print(f'f={f}, dst={Cfg.inp_folder}')
+        shutil.move(f,Cfg.inp_folder)
+    logger.debug(f'Files moved sync_folder --> input_folder. '
+                 f'Files: {len(os.listdir(Cfg.sync_folder))} in sync_folder, '
+                 f'{len(os.listdir(Cfg.inp_folder))} in inp_folder')
+
 
 def main():
     logger.debug('metering - start')
     Debug.set_params(log_folder=Cfg.log_folder, log_image=Cfg.log_image)
-    with open(Cfg.csv_file, 'w') as f:
-        f.write(f'datetime\tmeter_id\ttemperature\n')
+    if Cfg.need_sync:
+        sync_meterings()
+    if Cfg.need_csv:
+        with open(Cfg.csv_file, 'w') as f:
+            f.write(f'datetime\tmeter_id\ttemperature\n')
     # Db.connect()
     start = datetime.datetime.now()
 
+    files_cnt = 0
     for folder in sorted(glob.glob(f'{Cfg.inp_folder}')):
         if not os.path.isdir(folder):
             continue
