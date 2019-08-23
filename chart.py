@@ -9,7 +9,7 @@ import matplotlib.ticker as ticker
 from db import Db
 from my_utils import Misc
 
-ReadingShortRecord = collections.namedtuple('ReadingShortRecord', 'dtime, meter_id, temperature')
+# ReadingShortRecord = collections.namedtuple('ReadingShortRecord', 'dtime, meter_id, temperature')
 
 def load_readings(start_dtime=None, end_dtime=None):
     if not start_dtime and not end_dtime:
@@ -25,7 +25,7 @@ def load_readings(start_dtime=None, end_dtime=None):
         exit(1)
 
     query = f'select * from readings_short {where_clause} order by datetime'
-    readings = Db.select_many( query, query_args, ReadingShortRecord)
+    readings = Db.select_many( query, query_args, Db.ReadingsShortRecord)
     print(f'loaded {len(readings)} readings, '
           f'dtime range: {min([r.dtime for r in readings])} : {max([r.dtime for r in readings])}')
     return readings
@@ -73,6 +73,7 @@ def main():
     temper = [r.temperature for r in selected_readings]
     # plot1(dt,temper)
     plot2(dt,temper)
+
 
 if __name__ == '__main__':
     main()

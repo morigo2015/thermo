@@ -1,13 +1,15 @@
 import os
 import sqlite3
 import logging
+import collections
 import cv2 as cv
 import numpy as np
 
 from config import Config
 from my_utils import Misc
 
-logger = logging.getLogger('thermo.'+__name__)
+logger = logging.getLogger('thermo.' + 'db')
+
 
 class Cfg(Config):
     inp_folders = f'../data/tests/rot*'  #
@@ -20,6 +22,23 @@ class Cfg(Config):
 
 
 class Db:
+    # views/tables structures:
+    ReadingsShortRecord = \
+        collections.namedtuple('ReadingsShortRecord',
+                               'dtime, meter_id, temperature')
+    ReadingsFullRecord = \
+        collections.namedtuple('ReadingsFullRecord',
+                               'dtime, meter_id, temperature, mark_id, code, equip_id, image_id, image_dtime')
+    ReadingsRecord = \
+        collections.namedtuple('ReadingsRecord',
+                               'dtime, meter_id, image_id, temperature')
+    ReadingsArchivedRecord = \
+        collections.namedtuple('ReadingsArchivedRecord',
+                               'dtime, meter_id, image_id, temperature, processed_dtime')
+    ReadingsGroupedRecord = \
+        collections.namedtuple('ReadingsGroupedRecord',
+                               'dtime, meter_id, min_temper, avg_temper, max_temper, atmo_temper, recalibr_flg')
+
     # api to database operation
 
     conn = None
@@ -45,8 +64,7 @@ class Db:
 
     @classmethod
     def select_many(cls, query, query_arg, record_ntuple, empty_ok=True):
-        cls.check_conn()
-        cls.cur.execute(query, query_arg)
+        cls.exec(query, query_arg)
         result = cls.cur.fetchall()
         if not len(result) and empty_ok is False:
             logger.error(f'Error:: records for {query}({query_arg}) !!!')
@@ -54,6 +72,20 @@ class Db:
         res_tup_list = [tuple(r) for r in result]
         res = [record_ntuple(*r) for r in res_tup_list]
         return res
+
+    @classmethod
+    def insert_one(cls, table_name, record_ntuple):
+        query = f'insert into {table_name} values ({", ".join(["? "]*len(record_ntuple))})'
+        query_args = tuple(record_ntuple)
+        logger.debug(f'insert query={query} args={query_args}')
+        cls.exec(query, query_args)
+
+    @classmethod
+    def exec(cls,query,query_args):
+        cls.check_conn()
+        cnt = cls.cur.execute(query, query_args).rowcount
+        cls.conn.commit()
+        return cnt
 
     @classmethod
     def get_meters_from_db(cls, qr_code):
@@ -100,11 +132,11 @@ class Db:
         # stub
         print('load images from db: ', image_id)
         cls.check_conn()
-        row=cls.cur.execute('select * '
-                        'from Images where image_id=?', (image_id,)).fetchone()
+        row = cls.cur.execute('select * '
+                              'from Images where image_id=?', (image_id,)).fetchone()
         cls.conn.commit()
 
-        return row['datetime'],row['flir_fname'],row['vis_fname'],row['therm_fname']
+        return row['datetime'], row['flir_fname'], row['vis_fname'], row['therm_fname']
 
 
 class ImageFiles:
@@ -133,16 +165,17 @@ class ImageFiles:
             Db.load_images_from_db(image_id)
         flir_img = cv.imread(f'{Cfg.out_folder}/{flir_img_fname}')
         visual_img = cv.imread(f'{Cfg.out_folder}/{visual_img_fname}')
-        thermal_np = np.load(f'{Cfg.out_folder}/{thermal_np_fname}',allow_pickle=True)
+        thermal_np = np.load(f'{Cfg.out_folder}/{thermal_np_fname}', allow_pickle=True)
         return dtime_str, flir_img, visual_img, thermal_np
+
 
 import collections
 
 if __name__ == '__main__':
 
     # Db.connect()
-    ReadingShortRecord = collections.namedtuple('ReadingShortRecord','dtime, meter_id, temperature')
-    readings = Db.select_many('select * from readings_short order by datetime',(),ReadingShortRecord)
+    ReadingShortRecord = collections.namedtuple('ReadingShortRecord', 'dtime, meter_id, temperature')
+    readings = Db.select_many('select * from readings_short order by datetime', (), ReadingShortRecord)
     print(len(readings))
     for r in readings:
         print(tuple(r))

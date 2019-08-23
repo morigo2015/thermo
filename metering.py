@@ -22,7 +22,7 @@ logger = logging.getLogger('thermo.'+'metering')
 
 
 class Cfg(Config):
-    inp_folder = f'../data/tests/door-autocalibr/distance_test3/'  #
+    inp_folder = f'../data/tests/groups/2/'  #
     inp_fname_mask = f'*.jpg'  # 512 0909 3232 446
     csv_file = f'../tmp/metering.csv'
     log_folder = f'../tmp/res_preproc/'
