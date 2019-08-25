@@ -6,7 +6,6 @@ import os
 import glob
 import datetime
 import logging
-import subprocess
 import shutil
 
 import cv2 as cv
@@ -22,18 +21,18 @@ logger = logging.getLogger('thermo.'+'metering')
 
 
 class Cfg(Config):
-    inp_folder = f'../data/tests/groups/2/'  #
+    inp_folder = f'../data/tests/for_demo/d3/'  #
     inp_fname_mask = f'*.jpg'  # 512 0909 3232 446
     csv_file = f'../tmp/metering.csv'
     log_folder = f'../tmp/res_preproc/'
     log_file = f'../tmp/debug.log'
     sync_folder = f'/home/im/mypy/thermo/GDrive-Ihorm/FLIR'
     # log_level = logging.DEBUG  # INFO DEBUG WARNING
-    log_image = True
-    need_sync = True  # sync: run rclone, then move from .../FLIR to inp_folders
-    need_csv = True  # save temperature to csv file
+    log_image = False
+    need_sync = False  # True  # sync: run rclone, then move from .../FLIR to inp_folders
+    need_csv = False  # save temperature to csv file
     sync_cmd = f'rclone move remote: {os.path.split(sync_folder)[0]}'  # remove /FLIR, it will be added by rclone
-
+    purge_reading_flg = False  # readings -> readings_hist
 
 class Reading:
 
@@ -147,6 +146,17 @@ def sync_meterings():
                  f'Files: {len(os.listdir(Cfg.sync_folder))} in sync_folder, '
                  f'{len(os.listdir(Cfg.inp_folder))} in inp_folder')
 
+def readings_to_hist():
+    # Readings --> Readings_hist:
+
+    rec_cnt = Db.select('select count(*) from Readings_plus_atmo', (), Db.OneValueRecord)[0].value
+    logger.debug(f'copying {rec_cnt} records from view Readings_plus_atmo to table Readings_hist')
+    Db.exec('insert into Readings_hist select * from Readings_plus_atmo')
+
+    if Cfg.purge_reading_flg:
+        rec_cnt = Db.select('select count(*) from Readings', (), Db.OneValueRecord)[0].value
+        logger.debug(f'deleting {rec_cnt} records from Reading')
+        Db.exec('delete from Readings')
 
 def main():
     logger.debug('metering - start')
@@ -159,7 +169,7 @@ def main():
     # Db.connect()
     start = datetime.datetime.now()
 
-    files_cnt = 0
+    files_cnt = -1
     for folder in sorted(glob.glob(f'{Cfg.inp_folder}')):
         if not os.path.isdir(folder):
             continue
@@ -176,10 +186,13 @@ def main():
         # print(f'Folder {folder}: {files_cnt} files processed')
 
     seconds = (datetime.datetime.now() - start).seconds
-    if not files_cnt:
+    if files_cnt == -1:
         print(f'no files processed. folders={Cfg.inp_folder} files mask={Cfg.inp_fname_mask}')
     else:
         print(f'Total time = {seconds:.0f}s   average={seconds/(files_cnt+1):.0f}s per file')
+
+    # Readings --> Readings_hist:
+    readings_to_hist()
 
     Db.close()
 

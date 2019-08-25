@@ -26,13 +26,13 @@ loggers:
 
 #  thermo.my_utils:
 #    level: INFO # WARNING #
-  thermo.metering:
-    level:  DEBUG # WARNING #
+#  thermo.metering:
+#    level:  DEBUG # WARNING #
 #  thermo.qr_read:
 #    level: DEBUG # INFO # WARNING #
-  thermo.proc_reads:
-    level: DEBUG # WARNING #
-  thermo.db:
+#  thermo.db:
+#    level: DEBUG # WARNING #
+  thermo.chart:
     level: DEBUG # WARNING #
 #  thermo.__main__:
 #    level: INFO # WARNING #

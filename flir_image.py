@@ -2,6 +2,7 @@ import glob
 import os
 import datetime
 import logging
+
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.WARNING)
 
@@ -11,6 +12,11 @@ from matplotlib import cm
 
 import flir_image_extractor
 from db import ImageFiles
+from config import Config
+
+
+class Cfg(Config):
+    cache_thermal_allowed = True
 
 
 class FlirImage:
@@ -20,14 +26,15 @@ class FlirImage:
         self.fname_path = fname_path
         self.datetime = self.extract_datetime()
         self.fie = flir_image_extractor.FlirImageExtractor(image_suffix="v.jpg", thermal_suffix="t.png")
-        self.fie.process_image(fname_path, skip_thermal)
+        cached_thermal = ImageFiles.get_cached_thermal(fname_path) if Cfg.cache_thermal_allowed else None
+        self.fie.process_image(fname_path, cached_thermal, skip_thermal)
         self.flir_img = self.get_flir_image(fname_path)
         self.visual_img = self.fie.get_rgb_np()
         self.thermal_np = self.fie.get_thermal_np()
         thermal_normalized = (self.thermal_np - np.amin(self.thermal_np)) \
                              / (np.amax(self.thermal_np) - np.amin(self.thermal_np))
         self.thermal_img = np.array(np.uint8(cm.inferno(thermal_normalized) * 255))  # inferno,gray
-        self.thermal_img = cv.cvtColor(self.thermal_img,cv.COLOR_RGBA2BGR)
+        self.thermal_img = cv.cvtColor(self.thermal_img, cv.COLOR_RGBA2BGR)
 
         self.vis_therm_ratio = (self.visual_img.shape[0] / self.thermal_np.shape[0],
                                 self.visual_img.shape[1] / self.thermal_np.shape[1])
@@ -43,7 +50,6 @@ class FlirImage:
             self.thermal_np = np.rot90(self.thermal_np)
             self.thermal_img = np.rot90(self.thermal_img)
 
-
         self.image_id = ImageFiles.save(self.datetime, self.flir_img,
                                         self.visual_img, self.thermal_np)
         self.skip_thermal = skip_thermal
@@ -53,8 +59,8 @@ class FlirImage:
 
     def extract_datetime(self):
         try:
-            fname = os.path.basename(self.fname_path)[:-4]  # remove path and extension
-            flir_datetime = datetime.datetime.strptime(fname, 'flir_%Y%m%dT%H%M%S')
+            fname = os.path.basename(self.fname_path)[5:-4]  # remove path, 'flir_' and extension
+            flir_datetime = datetime.datetime.strptime(fname, '%Y%m%dT%H%M%S')
         except ValueError:
             flir_datetime = None
         return flir_datetime

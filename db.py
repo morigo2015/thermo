@@ -26,18 +26,13 @@ class Db:
     ReadingsShortRecord = \
         collections.namedtuple('ReadingsShortRecord',
                                'dtime, meter_id, temperature')
-    ReadingsFullRecord = \
-        collections.namedtuple('ReadingsFullRecord',
-                               'dtime, meter_id, temperature, mark_id, code, equip_id, image_id, image_dtime')
     ReadingsRecord = \
         collections.namedtuple('ReadingsRecord',
-                               'dtime, meter_id, image_id, temperature')
-    ReadingsArchivedRecord = \
-        collections.namedtuple('ReadingsArchivedRecord',
-                               'dtime, meter_id, image_id, temperature, processed_dtime')
-    ReadingsGroupedRecord = \
-        collections.namedtuple('ReadingsGroupedRecord',
-                               'dtime, meter_id, min_temper, avg_temper, max_temper, atmo_temper, recalibr_flg')
+                               'dtime, dtime_sec, meter_id, image_id, temperature')
+    ReadingsHistRecord = \
+        collections.namedtuple('ReadingsHistRecord',
+                               'dtime, dtime_sec, meter_id, image_id, temperature, min_atmo, avg_atmo, max_atmo')
+    OneValueRecord = collections.namedtuple('OneValueRecord', 'value')
 
     # api to database operation
 
@@ -63,7 +58,7 @@ class Db:
             cls.connect()
 
     @classmethod
-    def select_many(cls, query, query_arg, record_ntuple, empty_ok=True):
+    def select(cls, query, query_arg, record_ntuple, empty_ok=True):
         cls.exec(query, query_arg)
         result = cls.cur.fetchall()
         if not len(result) and empty_ok is False:
@@ -81,8 +76,10 @@ class Db:
         cls.exec(query, query_args)
 
     @classmethod
-    def exec(cls,query,query_args):
+    def exec(cls, query, query_args=None):
         cls.check_conn()
+        if query_args is None:
+            query_args = ()
         cnt = cls.cur.execute(query, query_args).rowcount
         cls.conn.commit()
         return cnt
@@ -111,8 +108,9 @@ class Db:
     def save_reading_to_db(cls, dtime, meter_id, image_id, temperature):
         logger.info(f'save reading to db: {dtime}, {meter_id}, {image_id}, {temperature}')
         cls.check_conn()
-        cls.cur.execute('insert into Readings values (?, ?, ?, ?)',
-                        (Misc.dtime_to_str(dtime), meter_id, image_id, temperature))
+        cls.cur.execute('insert into Readings values (?, strftime("%s",?), ?, ?, ?)',
+                        (Misc.dtime_to_str(dtime), Misc.dtime_to_sqlite_str(dtime),
+                         meter_id, image_id, temperature))
         cls.conn.commit()
 
     @classmethod
@@ -168,6 +166,18 @@ class ImageFiles:
         thermal_np = np.load(f'{Cfg.out_folder}/{thermal_np_fname}', allow_pickle=True)
         return dtime_str, flir_img, visual_img, thermal_np
 
+    @staticmethod
+    def get_cached_thermal(flir_fname_path):
+        # flir_fname_path --> date_str
+        dtime_str = os.path.basename(flir_fname_path)[5:-4]  # cut 'flir_' and '.jpg'
+        date_str = str(Misc.str_to_dtime(dtime_str).date())  # yyymmddThhmmss -> yyyy-mm-dd
+        thermal_fname_path = f'{Cfg.out_folder}/{Cfg.images_subfolder}/{date_str}/{dtime_str}_t.npy'
+        if not os.path.exists(thermal_fname_path):
+            return None
+        else:
+            thermal_np = np.load(thermal_fname_path, allow_pickle=True)
+            return thermal_np
+
 
 import collections
 
@@ -175,7 +185,7 @@ if __name__ == '__main__':
 
     # Db.connect()
     ReadingShortRecord = collections.namedtuple('ReadingShortRecord', 'dtime, meter_id, temperature')
-    readings = Db.select_many('select * from readings_short order by datetime', (), ReadingShortRecord)
+    readings = Db.select('select * from readings_short order by datetime', (), ReadingShortRecord)
     print(len(readings))
     for r in readings:
         print(tuple(r))

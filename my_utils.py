@@ -245,6 +245,10 @@ class Misc:
         return datetime.datetime.strftime(dtime, '%Y-%m-%d %H:%M:%S')
 
     @staticmethod
+    def dtime_to_sqlite_str(dtime):
+        return datetime.datetime.strftime(dtime, '%Y-%m-%d %H:%M:%S')
+
+    @staticmethod
     def str_to_dtime(dtime_str):
         return datetime.datetime.strptime(dtime_str, '%Y%m%dT%H%M%S')
 
