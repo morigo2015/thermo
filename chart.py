@@ -12,10 +12,10 @@ from my_utils import Misc
 logger = logging.getLogger('thermo.' + 'chart')
 
 data_sets = {
-    'd1': ('d1',(1041,),'20190824T155400', '20190824T165600'),
-    'd2': ('d2',(1041,),'20190824T181000', '20190824T181900'),
-    'd3': ('d3',(1004,),'20190824T183700', '20190824T185900'),
-    'd4': ('d4',(1004,),'20190826T114741', '20190826T122738')
+    'd1': ('d1', (1041,), '20190824T155400', '20190824T165600'),
+    'd2': ('d2', (1041,), '20190824T181000', '20190824T181900'),
+    'd3': ('d3', (1004,), '20190824T183700', '20190824T185900'),
+    'd4': ('d4', (1004,), '20190826T114741', '20190826T122738')
 }
 
 
@@ -58,7 +58,7 @@ def chart_meter(name, meters, start_dtime, end_dtime):
     myFmt = DateFormatter("%m-%d %H:%M:%S")
 
     color = 'tab:red'
-    ax1.plot(dtime, temper, color=color, label=f'Температура в id={meter_id}')
+    temp_plot, =ax1.plot(dtime, temper, color=color, label=f'Температура {meter_id}')
     ax1.set_xlabel('Час')
     ax1.xaxis.set_major_formatter(myFmt)
     # ax1.xaxis.set_major_locator(ticker.LinearLocator(35))
@@ -68,16 +68,17 @@ def chart_meter(name, meters, start_dtime, end_dtime):
 
     color = 'tab:green'
     ax1.set_ylabel(f'Температура (власна)', color=color)
-    ax1.plot(dtime, atmo, color=color, label=f'Температура оточення для id={meter_id}')
-    ax1.legend(loc='upper left')
+    atmo_plot, =ax1.plot(dtime, atmo, color=color, label=f'Темп.оточення {meter_id}')
+    # ax1.legend(loc='best') # upper left')
 
     color = 'tab:blue'
     ax2 = ax1.twinx()
     ax2.set_ylabel(f'Різниця з оточенням', color=color)
     ax2.xaxis.set_major_formatter(myFmt)
     ax2.xaxis.set_major_locator(ticker.LinearLocator(15))
-    ax2.plot(dtime, delta_atmo, color=color, label=f'Різниця для id={meter_id}')
-    ax2.legend(loc='upper right')
+    diff_plot, =ax2.plot(dtime, delta_atmo, color=color, label=f'Різниця {meter_id}')
+    # ax2.legend(loc='best') # 'upper right')
+    ax2.legend(handles=(temp_plot,atmo_plot,diff_plot))
 
     fig.tight_layout()
     fig.savefig('../tmp/plot_meter.png')
@@ -89,54 +90,6 @@ def main():
     logger.debug(f'data set name={ds_name}')
     chart_meter(*data_sets[ds_name])
 
+
 if __name__ == '__main__':
     main()
-
-
-    # start_dtime = '20190824T152400'  # '20190824T155400'
-    # meter_id = 1041  # -1 means all
-    # end_dtime = None
-    # end_dtime = '20190824T182000' # '20190824T165600'
-    # chart_meter(meter_id, start_dtime, end_dtime)
-
-
-    # readings = load_readings(start_dtime, end_dtime)
-    # selected_readings = [r for r in readings if r.meter_id == meter_id or meter_id == -1]
-    # dt = [Misc.str_to_dtime(r.dtime) for r in selected_readings]
-    #
-    # temper = [r.temperature-r.avg_atmo for r in selected_readings]
-    # plot1(dt,temper)
-    # plot2(dt, temper)
-
-#
-# def plot1(dt, temper):
-#     fig, ax = plt.subplots()
-#     ax.plot(dt, temper)
-#     # ax.plot(dt,temp)
-#     fig.savefig('../tmp/plot1.png')
-#     plt.show()
-#
-#
-# def plot2(dt, temper):
-#     # next we'll write a custom formatter
-#     N = len(dt)
-#     ind = np.arange(N)  # the evenly spaced plot indices
-#
-#     def format_date(x, pos=None):
-#         thisind = np.clip(int(x + 0.5), 0, N - 1)
-#         res = Misc.dtime_to_csv_str(dt[thisind])
-#         return res
-#
-#     fig, ax = plt.subplots()
-#     # ax.plot(dt, temper)
-#
-#     # ax = axes[1]
-#     ax.plot(ind, temper)  # , 'o-')
-#     ax.xaxis.set_major_formatter(ticker.FuncFormatter(format_date))
-#     ax.set_title("Custom tick formatter")
-#     fig.autofmt_xdate()
-#
-#     fig.savefig('../tmp/plot2.png')
-#     plt.show()
-#
-#
