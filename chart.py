@@ -55,6 +55,8 @@ def chart_meter(name, meters, start_dtime, end_dtime):
         for r in selected_readings]))
 
     fig, ax1 = plt.subplots()
+    # fig.suptitle(f'Динаміка температура для {name}')
+    ax1.set_title(f'Динаміка температури для сценарію "{name}"')
     myFmt = DateFormatter("%m-%d %H:%M:%S")
 
     color = 'tab:red'
@@ -86,7 +88,7 @@ def chart_meter(name, meters, start_dtime, end_dtime):
 
 
 def main():
-    ds_name = 'd4'
+    ds_name = 'd2'
     logger.debug(f'data set name={ds_name}')
     chart_meter(*data_sets[ds_name])
 
