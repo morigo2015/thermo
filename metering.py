@@ -21,7 +21,7 @@ logger = logging.getLogger('thermo.'+'metering')
 
 
 class Cfg(Config):
-    inp_folder = f'../data/tests/for_demo/d3/'  #
+    inp_folder = f'../data/tests/for_demo/d4/'  #
     inp_fname_mask = f'*.jpg'  # 512 0909 3232 446
     csv_file = f'../tmp/metering.csv'
     log_folder = f'../tmp/res_preproc/'
@@ -29,7 +29,7 @@ class Cfg(Config):
     sync_folder = f'/home/im/mypy/thermo/GDrive-Ihorm/FLIR'
     # log_level = logging.DEBUG  # INFO DEBUG WARNING
     log_image = False
-    need_sync = False  # True  # sync: run rclone, then move from .../FLIR to inp_folders
+    need_sync = True  # True  # sync: run rclone, then move from .../FLIR to inp_folders
     need_csv = False  # save temperature to csv file
     sync_cmd = f'rclone move remote: {os.path.split(sync_folder)[0]}'  # remove /FLIR, it will be added by rclone
     purge_reading_flg = False  # readings -> readings_hist
@@ -91,8 +91,8 @@ def take_readings(fname_path_flir):
     # file --> db + files in images/date
     try:
         fi = FlirImage(fname_path_flir)
-    except ValueError:
-        logger.error(f'file {fname_path_flir} skipped due to ValueError')
+    except (ValueError, KeyError):
+        logger.exception(f'error while flir-processing file {fname_path_flir}. Skipped.')
         return 0
     qr_mark_list = QrDecode.get_all_qrs(fi.visual_img)
 
@@ -166,7 +166,8 @@ def main():
     if Cfg.need_csv:
         with open(Cfg.csv_file, 'w') as f:
             f.write(f'datetime\tmeter_id\ttemperature\n')
-    # Db.connect()
+    Db.exec('delete from Readings',())
+    
     start = datetime.datetime.now()
 
     files_cnt = -1
