@@ -13,11 +13,11 @@ logger = logging.getLogger('thermo.' + 'db')
 
 class Cfg(Config):
     inp_folders = f'../data/tests/rot*'  #
-    inp_fname_mask = f'*013.jpg'
+    # inp_fname_mask = f'*013.jpg'
     out_folder = f'../tmp/out'
     log_folder = f'../tmp/res_preproc'
     verbose = 2
-    db_path = f'../sql/thermo.sql'
+    db_path = f'../sql/thermo_debug.db'
     images_subfolder = 'images'  # images subfolder in {out_folder}
 
 
@@ -33,6 +33,7 @@ class Db:
         collections.namedtuple('ReadingsHistRecord',
                                'dtime, dtime_sec, meter_id, image_id, temperature, min_atmo, avg_atmo, max_atmo')
     OneValueRecord = collections.namedtuple('OneValueRecord', 'value')
+    MeterEquipRecord = collections.namedtuple('MeterEquipRecord', 'meter_id, atmo_flg, equip_id')
 
     # api to database operation
 
@@ -49,8 +50,10 @@ class Db:
     def close(cls):
         if cls.conn is None:
             return
-        cls.conn.commit()
+        # cls.conn.commit()
         cls.conn.close()
+        cls.cur = None
+        cls.conn = None
 
     @classmethod
     def check_conn(cls):
@@ -135,6 +138,23 @@ class Db:
         cls.conn.commit()
 
         return row['datetime'], row['flir_fname'], row['vis_fname'], row['therm_fname']
+
+    _meter_equip = None
+
+    @classmethod
+    def meter_to_equip(cls, meter_id):
+        if cls._meter_equip is None:
+            meter_equip_records = cls.select('select * from meter_equip', (), cls.MeterEquipRecord)
+            if not len(meter_equip_records):
+                logger.error(f'empty view _meter_equip!')
+                return -1
+            cls._meter_equip = dict([(r.meter_id, r.equip_id) for r in meter_equip_records])
+        try:
+            equip_id = cls._meter_equip[meter_id]
+        except KeyError:
+            logger.error(f'Unknown meter_id={meter_id}')
+            equip_id = -1
+        return equip_id
 
 
 class ImageFiles:

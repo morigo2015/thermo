@@ -88,7 +88,7 @@ def chart_meter(name, meters, start_dtime, end_dtime):
 
 
 def main():
-    ds_name = 'd2'
+    ds_name = 'd4'
     logger.debug(f'data set name={ds_name}')
     chart_meter(*data_sets[ds_name])
 
