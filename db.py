@@ -83,6 +83,14 @@ class Db:
         cls.exec(query, query_args)
 
     @classmethod
+    def insert_many(cls, table_name, record_ntuple_lst):
+        for record_ntuple in record_ntuple_lst:
+            query = f'insert into {table_name} values ({", ".join(["? "]*len(record_ntuple))})'
+            query_args = tuple(record_ntuple)
+            cls.exec(query, query_args)
+        logger.debug(f'inserted {len(record_ntuple_lst)} records in {table_name}')
+
+    @classmethod
     def exec(cls, query, query_args=None):
         cls.check_conn()
         if query_args is None:

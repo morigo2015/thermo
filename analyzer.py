@@ -22,6 +22,7 @@ import statistics
 from enum import Enum
 
 from db import Db, MeterGrpInfo
+from chart_utils import ColoredText
 
 logger = logging.getLogger('thermo.' + 'analyzer')
 
@@ -38,7 +39,7 @@ class Analyzer:
     equip_recs_dict = None  # dict( equip_id : [related recs from Readings] )
 
     @classmethod
-    def run(cls, event):
+    def run(cls):
         cls.recs = Db.select("select * from Readings order by dtime_sec", (), Db.ReadingsRecord, empty_ok=True)
         cls.equip_recs_dict = {equip_id: list(recs) for equip_id, recs
                                in itertools.groupby(cls.recs, key=lambda r: Db.meter_to_equip(r.meter_id))}
@@ -53,7 +54,7 @@ class Analyzer:
             meters_hist_lst = cls.make_meters_hist(readings_hist_lst, equip_hist.dtime, equip_hist.dtime_sec)
             # equip_status = cls.get_equip_status(readings_hist_lst)
             equip_status, status_report = cls.get_status_report(equip_id, equip_hist, meters_hist_lst)
-            cls.do_inform_user(equip_id, equip_status, status_report)
+            cls.do_inform_user(equip_status, status_report)
             cls.save_to_hist(equip_hist, meters_hist_lst, readings_hist_lst)
             cls.delete_readings(recs)
 
@@ -130,27 +131,51 @@ class Analyzer:
 
     status_reps = {Status.UNDEF: 'Невизначено',
                    Status.GREEN: 'OK', Status.YELLOW: 'Увага', Status.RED: 'Небезепечно!'}
+    status_colors = {Status.UNDEF: ColoredText.undef,
+                     Status.GREEN: ColoredText.ok, Status.YELLOW: ColoredText.warning, Status.RED: ColoredText.critical}
+    indicator_names = ['temp', 'atmo', 'group']
+    indicator_signs = ['t', 'd', 'g']
 
     @classmethod
-    def get_status_report(cls, equip_id, equip_status, meters_hist_lst):  # todo
-        if equip_status == Status.GREEN:
-            return f'Обладнання {equip_id} - {cls.status_reps[equip_status]}'
-        temp = statistics.mean([rext.temperature for rext in meters_hist_lst])
+    def get_status_report(cls, equip_id, equip_hist, meters_hist_lst):  # todo
+        # generate status report
+        equip_status = equip_hist.max(equip_hist.status_temp, equip_hist.status_atmo, equip_hist.status_group)
+        status_report = [(f'Обладнання {equip_id} - {cls.status_reps[equip_status]}',
+                          cls.status_colors[equip_status])]
+        if equip_status <= Status.GREEN:
+            return equip_status, status_report
+        # if equip is not Green then print all non-green indicator for all meters
+        for i, indicator in enumerate(cls.indicator_names):
+            eqp_stat = [equip_hist.status_temp, equip_hist.status_atmo, equip_hist.status_group][i]
+            if eqp_stat <= Status.GREEN:
+                continue
+            for m in meters_hist_lst:
+                m_stat = [m.status_temp, m.status_atmo, m.status_group][i]
+                if m_stat < Status.GREEN:
+                    continue
+                status_report.append((cls.get_meter_report(m, indicator), cls.status_colors[m_stat]))
         return equip_status, status_report
 
     @classmethod
-    def do_inform_user(cls, equip_id, equip_status, status_report):
-        pass  # todo
+    def get_meter_report(cls, meter_hist, indicator_num):
+        indic_sign = cls.indicator_signs[indicator_num]
+        ranges = MeterGrpInfo.get_ranges(meter_hist.meter_id)
+        yellow_range, red_range = ranges[indicator_num * 2], ranges[indicator_num * 2 + 1]
+        indic_value = [meter_hist.temperature, meter_hist.atmo_temp, meter_hist.group_temp][indicator_num]
+        report = f'\t{indic_sign}(id={meter_hist.meter_id})={indic_value}\'C ref:{yellow_range}\'C;{red_range}\'C'
+        return report
 
     @classmethod
-    def save_to_hist(cls,equip_hist, meters_hist_lst, readings_hist_lst):
-        pass  # todo
+    def do_inform_user(cls, equip_status, status_report):
+        print(status_report)
 
     @classmethod
-    def insert_readings_hist(cls, r_ext_lst):
-        logger.debug(f'r_ext_lst: len={len(r_ext_lst)}')
-        for r in r_ext_lst:
-            Db.insert_one('Hist_readings', r)
+    def save_to_hist(cls, equip_hist, meters_hist_lst, readings_hist_lst):
+        logger.debug(f'equip({equip_hist.id},{equip_hist.dtime}, '
+                     f'meters_len={len(meters_hist_lst)} readings_len={len(readings_hist_lst)}')
+        Db.insert_one('Hist_equips', equip_hist)
+        Db.insert_many('Hist_meters', meters_hist_lst)
+        Db.insert_many('Hist_readings', readings_hist_lst)
 
     @classmethod
     def delete_readings(cls, recs):

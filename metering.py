@@ -187,7 +187,7 @@ def take_readings(fname_path_flir):
                 continue
 
             if _GroupEquip.ready_to_analyze(event='readings_taken', meter_ids=meter_ids):
-                Analyzer.run('readings_taken')
+                Analyzer.run()
 
             reading.save_to_db()
             # reading.save_to_csv()
@@ -246,7 +246,7 @@ def main():
             files_list = sorted(glob.glob(f'{Cfg.inp_folder}/{Cfg.inp_fname_mask}'))
             if not len(files_list):
                 if _GroupEquip.ready_to_analyze(event='empty_dir'):
-                    Analyzer.run('empty_dir')
+                    Analyzer.run()
                 logger.debug(f'timeout {Cfg.inp_timeout} sec')
                 time.sleep(Cfg.inp_timeout)  # sec
                 continue
@@ -266,7 +266,7 @@ def main():
     except KeyboardInterrupt:
         logger.info('metering is interrupted by user')
         if _GroupEquip.ready_to_analyze(event='the_end'):
-            Analyzer.run('the_end')
+            Analyzer.run()
     finally:
         Db.close()
 
