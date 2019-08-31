@@ -23,17 +23,21 @@ class Cfg(Config):
 
 class Db:
     # views/tables structures:
-    ReadingsShortRecord = \
-        collections.namedtuple('ReadingsShortRecord',
-                               'dtime, meter_id, temperature')
-    ReadingsRecord = \
-        collections.namedtuple('ReadingsRecord',
-                               'dtime, dtime_sec, meter_id, image_id, temperature')
-    ReadingsHistRecord = \
-        collections.namedtuple('ReadingsHistRecord',
-                               'dtime, dtime_sec, meter_id, image_id, temperature, min_atmo, avg_atmo, max_atmo')
+    ReadingsShortRecord = collections.namedtuple('ReadingsShortRecord', 'dtime, meter_id, temperature')
+    ReadingsRecord = collections.namedtuple('ReadingsRecord', 'dtime, dtime_sec, meter_id, image_id, temperature')
+    HistReadingsRecord = collections.namedtuple('HistReadingsRecord', 'dtime, dtime_sec, meter_id, image_id, '
+                                                                      'temperature, atmo_temp, group_temp, '
+                                                                      'status_temp, status_atmo, status_group, '
+                                                                      'equip_dtime, equip_dtime_sec')
+    HistMetersRecord = collections.namedtuple('HistMetersRecord', 'meter_id, dtime, dtime_sec, '
+                                                                  'temperature, atmo_temp, group_temp, '
+                                                                  'status_temp, status_atmo, status_group')
+    HistEquipsRecord = collections.namedtuple('HistEquipRecord', 'equip_id, dtime, dtime_sec, '
+                                                                 'status_temp, status_atmo, status_group')
     OneValueRecord = collections.namedtuple('OneValueRecord', 'value')
     MeterEquipRecord = collections.namedtuple('MeterEquipRecord', 'meter_id, atmo_flg, equip_id')
+    MeterGroupRecord = collections.namedtuple('MeterGroupRecord', 'meter_id, group_id, temp_yellow, temp_red, '
+                                                                  'atmo_yellow, atmo_red, group_yellow, group_red')
 
     # api to database operation
 
@@ -109,6 +113,7 @@ class Db:
 
     @classmethod
     def save_reading_to_db(cls, dtime, meter_id, image_id, temperature):
+        # todo change caller to call insert_one; then delete this function
         logger.info(f'save reading to db: {dtime}, {meter_id}, {image_id}, {temperature}')
         cls.check_conn()
         cls.cur.execute('insert into Readings values (?, strftime("%s",?), ?, ?, ?)',
@@ -130,7 +135,7 @@ class Db:
 
     @classmethod
     def load_images_from_db(cls, image_id):
-        # stub
+        # todo change caller to call select; then delete this function
         print('load images from db: ', image_id)
         cls.check_conn()
         row = cls.cur.execute('select * '
@@ -139,22 +144,65 @@ class Db:
 
         return row['datetime'], row['flir_fname'], row['vis_fname'], row['therm_fname']
 
-    _meter_equip = None
+    # todo extract it and next functions to departed class
+    _meter_equip = None  # dict(meter_id:equip_id)
+    _meter_atmo = None  # dict(meter_id:atmo_flg)
+
+    @classmethod
+    def _load_meter_equip(cls):
+        meter_equip_records = cls.select('select * from meter_equip', (), cls.MeterEquipRecord)
+        if not len(meter_equip_records):
+            logger.error(f'empty view _meter_equip!')
+            exit(1)
+        cls._meter_equip = dict([(r.meter_id, r.equip_id) for r in meter_equip_records])
+        cls._meter_atmo = dict([(r.meter_id, r.atmo_flg) for r in meter_equip_records])
 
     @classmethod
     def meter_to_equip(cls, meter_id):
         if cls._meter_equip is None:
-            meter_equip_records = cls.select('select * from meter_equip', (), cls.MeterEquipRecord)
-            if not len(meter_equip_records):
-                logger.error(f'empty view _meter_equip!')
-                return -1
-            cls._meter_equip = dict([(r.meter_id, r.equip_id) for r in meter_equip_records])
+            cls._load_meter_equip()
         try:
             equip_id = cls._meter_equip[meter_id]
         except KeyError:
             logger.error(f'Unknown meter_id={meter_id}')
             equip_id = -1
         return equip_id
+
+    @classmethod
+    def meter_is_atmo(cls, meter_id):
+        if cls._meter_equip is None:
+            cls._load_meter_equip()
+        try:
+            atmo_flg = cls._meter_atmo[meter_id]
+        except KeyError:
+            logger.error(f'Unknown meter_id={meter_id}')
+            atmo_flg = None
+        return atmo_flg
+
+
+class MeterGrpInfo:
+    _meter_group = None  # dict(meter_id:group_info)
+
+    @classmethod
+    def _load_meter_info(cls):
+        meter_group_records = Db.select('select * from meter_group', (), Db.MeterGroupRecord)
+        if not len(meter_group_records):
+            logger.error(f'empty view _meter_group!')
+            exit(1)
+        cls._meter_group = dict(
+            [(r.meter_id, (r.temp_yellow, r.temp_red, r.atmo_yellow, r.atmo_red, r.group_yellow, r.group_red))
+             for r in meter_group_records])
+
+    @classmethod
+    def get_ranges(cls, meter_id):
+        if cls._meter_group is None:
+            cls._load_meter_info()
+        try:
+            ranges = cls._meter_group[meter_id]
+        except KeyError:
+            logger.error(f'Unknown meter_id={meter_id}')
+            ranges = None
+        return ranges
 
 
 class ImageFiles:

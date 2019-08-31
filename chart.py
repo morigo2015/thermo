@@ -37,7 +37,7 @@ def load_readings(start_dtime=None, end_dtime=None):
             f'{where_clause} ' \
             f'order by dtime'
     logger.debug(f'query={query}, args={query_args}')
-    readings = Db.select(query, query_args, Db.ReadingsHistRecord)
+    readings = Db.select(query, query_args, Db.HistReadingsRecord)
     logger.debug(f'loaded {len(readings)} readings, '
                  f'dtime range: {min([r.dtime for r in readings])} : {max([r.dtime for r in readings])}')
     return readings

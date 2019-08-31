@@ -120,6 +120,8 @@ class _GroupEquip:
             equip_ids = [Db.meter_to_equip(meter_id) for meter_id in list(set(meter_ids))]
             equip_ids_uniq = list(set(equip_ids))
             if len(equip_ids_uniq) == 1: # normal case - only one equip on an image
+                if cls.current_equip_id == -1:  # if first image after start
+                    cls.current_equip_id = equip_ids_uniq[0]
                 if cls.current_equip_id == equip_ids_uniq[0]:
                     return False  # equip is not changed, no need to call analyzer
                 else:
@@ -183,6 +185,10 @@ def take_readings(fname_path_flir):
                              f'for meter_id={meter_id} offset=({offset_x},{offset_y}) '
                              f'due to illegal coordinates after offset_to_xy()')
                 continue
+
+            if _GroupEquip.ready_to_analyze(event='readings_taken', meter_ids=meter_ids):
+                Analyzer.run('readings_taken')
+
             reading.save_to_db()
             # reading.save_to_csv()
 
@@ -192,6 +198,7 @@ def take_readings(fname_path_flir):
             Debug.log_image('visual_read', visual_img_copy)
             Debug.log_image('thermal_read', thermal_img_copy)
             reading_cnt += 1
+
     return reading_cnt, meter_ids
 
 
@@ -240,25 +247,24 @@ def main():
             if not len(files_list):
                 if _GroupEquip.ready_to_analyze(event='empty_dir'):
                     Analyzer.run('empty_dir')
+                logger.debug(f'timeout {Cfg.inp_timeout} sec')
                 time.sleep(Cfg.inp_timeout)  # sec
                 continue
             start = datetime.datetime.now()
-            for (files_cnt, fname_path_flir) in enumerate(files_list):
+            for (files_cnt, fname_path_flir) in enumerate(files_list,1):
 
                 cnt, meter_ids = take_readings(fname_path_flir)
 
                 if not cnt or not len(meter_ids):
                     continue  # skip it, no mark/meters/readings here
-                if _GroupEquip.ready_to_analyze(event='readings_taken',meter_ids=meter_ids):
-                    Analyzer.run('readings_taken')
-                logger.info(f'{files_cnt+1} of {len(files_list)}: {fname_path_flir} readings:{cnt} '
+                logger.info(f'{files_cnt} of {len(files_list)}: {fname_path_flir} readings:{cnt} '
                             f'equip:{list(set([Db.meter_to_equip(m) for m in meter_ids]))}')
 
             seconds = (datetime.datetime.now() - start).seconds
-            print(f'Processed {files_cnt+1} files in {seconds:.0f}s, ({seconds/(files_cnt+1):.0f} sec/file)')
+            print(f'Processed {files_cnt} files in {seconds:.0f}s, ({seconds/files_cnt:.0f} sec/file)')
             Db.close()
     except KeyboardInterrupt:
-        logger.debug('metering is interrupted by user')
+        logger.info('metering is interrupted by user')
         if _GroupEquip.ready_to_analyze(event='the_end'):
             Analyzer.run('the_end')
     finally:
