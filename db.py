@@ -14,7 +14,7 @@ logger = logging.getLogger('thermo.' + 'db')
 class Cfg(Config):
     inp_folders = f'../data/tests/rot*'  #
     # inp_fname_mask = f'*013.jpg'
-    out_folder = f'../tmp/out'
+    out_folder = f'../data/out'
     log_folder = f'../tmp/res_preproc'
     verbose = 2
     db_path = f'../sql/thermo_debug.db'

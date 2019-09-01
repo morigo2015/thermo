@@ -19,15 +19,21 @@
 import logging
 import itertools
 import statistics
-from enum import Enum
+from enum import IntEnum
 
 from db import Db, MeterGrpInfo
 from chart_utils import ColoredText
+from config import Config
 
 logger = logging.getLogger('thermo.' + 'analyzer')
 
 
-class Status(Enum):
+class Cfg(Config):
+    report_fname_path = '../tmp/report.txt'
+    extend_report = True  # if True - include all values not yellow and red only
+
+
+class Status(IntEnum):
     UNDEF = -1
     GREEN = 0
     YELLOW = 1
@@ -47,10 +53,11 @@ class Analyzer:
             logger.warning(f'More than one equip_id in Readings: {cls.equip_recs_dict.keys()}')
 
         for equip_id, recs in cls.equip_recs_dict.items():
-            logger.debug(f'equip_id={equip_id}, meters={[r.meter_id for r in recs]}')
+            logger.debug(f'equip_id={equip_id}, meters set={list(set([r.meter_id for r in recs]))}')
             atmo = cls.get_atmo(recs, equip_id)
             readings_hist_lst = cls.make_readings_hist(recs, atmo)
             equip_hist = cls.make_equips_hist(equip_id, readings_hist_lst)
+            readings_hist_lst = cls.add_equip_dtime(readings_hist_lst, equip_hist)
             meters_hist_lst = cls.make_meters_hist(readings_hist_lst, equip_hist.dtime, equip_hist.dtime_sec)
             # equip_status = cls.get_equip_status(readings_hist_lst)
             equip_status, status_report = cls.get_status_report(equip_id, equip_hist, meters_hist_lst)
@@ -98,25 +105,41 @@ class Analyzer:
             status_temp, status_atmo, status_group = cls.get_reading_statuses(r.meter_id, r.temperature, atmo_temp)
             readings_hist_lst.append(Db.HistReadingsRecord(r.dtime, r.dtime_sec, r.meter_id, r.image_id,
                                                            r.temperature, atmo_temp, group_temp,
-                                                           status_temp, status_atmo, status_group))
+                                                           status_temp, status_atmo, status_group,
+                                                           None, None))  # equip_dtime, equip_dtime_sec to be updated
+        logger.debug(f'len(readings_hist_lst={len(readings_hist_lst)})')
+        return readings_hist_lst
+
+    @classmethod
+    def add_equip_dtime(cls, readings_hist_lst, equip_hist):
+        readings_hist_lst = [r._replace(equip_dtime=equip_hist.dtime, equip_dtime_sec=equip_hist.dtime_sec)
+                             for r in readings_hist_lst]
         return readings_hist_lst
 
     @classmethod
     def make_meters_hist(cls, readings_hist_lst, equip_dtime, equip_dtime_sec):
         # group by meters and create list of records for meter_hist
+        readings_hist_lst = sorted(readings_hist_lst, key=lambda r: r.meter_id)
+        # grouped_by_meter = list(itertools.groupby(readings_hist_lst, key=lambda r: r.meter_id))
         meters_recs_dict = {meter_id: list(recs)
                             for meter_id, recs in itertools.groupby(readings_hist_lst, key=lambda r: r.meter_id)}
         meters_hist_lst = []
-        for m_id, recs in meters_recs_dict:
+        for m_id, recs in meters_recs_dict.items():
+            if not len(recs):
+                logger.error(f'recs len =0 for m_id={m_id}, len(readings_hist_lst)={len(readings_hist_lst)}')
             temperature = statistics.mean([r.temperature for r in recs])
-            atmo_temp = statistics.mean([r.atmo_temp for r in recs])
-            group_temp = statistics.mean([r.group_temp for r in recs])
+            if any(r.atmo_temp is None for r in recs):
+                atmo_temp = None
+            else:
+                atmo_temp = statistics.mean([r.atmo_temp for r in recs])
+            group_temp = 9999.0  # statistics.mean([r.group_temp for r in recs])
             status_temp = max([r.status_temp for r in recs])
             status_atmo = max([r.status_atmo for r in recs])
             status_group = max([r.status_group for r in recs])
             meters_hist_lst.append(Db.HistMetersRecord(m_id, equip_dtime, equip_dtime_sec,
                                                        temperature, atmo_temp, group_temp,
                                                        status_temp, status_atmo, status_group))
+        logger.debug(f'len(meter_hist_lst)={len(meters_hist_lst)}')
         return meters_hist_lst
 
     @classmethod
@@ -133,27 +156,33 @@ class Analyzer:
                    Status.GREEN: 'OK', Status.YELLOW: 'Увага', Status.RED: 'Небезепечно!'}
     status_colors = {Status.UNDEF: ColoredText.undef,
                      Status.GREEN: ColoredText.ok, Status.YELLOW: ColoredText.warning, Status.RED: ColoredText.critical}
-    indicator_names = ['temp', 'atmo', 'group']
+    indicator_names = ['temp', 'atmo_diff'] # , 'group_diff']
     indicator_signs = ['t', 'd', 'g']
+
+    @classmethod
+    def get_indic_value(cls, indicator_num, temperatue, atmo_temp, group_temp):
+        diff_atmo = temperatue - atmo_temp if atmo_temp is not None else None
+        diff_group = temperatue - group_temp if group_temp is not None else None
+        return [temperatue, diff_atmo, diff_group][indicator_num]
 
     @classmethod
     def get_status_report(cls, equip_id, equip_hist, meters_hist_lst):  # todo
         # generate status report
-        equip_status = equip_hist.max(equip_hist.status_temp, equip_hist.status_atmo, equip_hist.status_group)
+        equip_status = max(equip_hist.status_temp, equip_hist.status_atmo, equip_hist.status_group)
         status_report = [(f'Обладнання {equip_id} - {cls.status_reps[equip_status]}',
                           cls.status_colors[equip_status])]
-        if equip_status <= Status.GREEN:
+        if equip_status <= Status.GREEN and not Cfg.extend_report:
             return equip_status, status_report
         # if equip is not Green then print all non-green indicator for all meters
         for i, indicator in enumerate(cls.indicator_names):
             eqp_stat = [equip_hist.status_temp, equip_hist.status_atmo, equip_hist.status_group][i]
-            if eqp_stat <= Status.GREEN:
+            if eqp_stat <= Status.GREEN and not Cfg.extend_report:
                 continue
             for m in meters_hist_lst:
                 m_stat = [m.status_temp, m.status_atmo, m.status_group][i]
-                if m_stat < Status.GREEN:
+                if m_stat < Status.GREEN and not Cfg.extend_report:
                     continue
-                status_report.append((cls.get_meter_report(m, indicator), cls.status_colors[m_stat]))
+                status_report.append((cls.get_meter_report(m, i), cls.status_colors[m_stat]))
         return equip_status, status_report
 
     @classmethod
@@ -161,17 +190,24 @@ class Analyzer:
         indic_sign = cls.indicator_signs[indicator_num]
         ranges = MeterGrpInfo.get_ranges(meter_hist.meter_id)
         yellow_range, red_range = ranges[indicator_num * 2], ranges[indicator_num * 2 + 1]
-        indic_value = [meter_hist.temperature, meter_hist.atmo_temp, meter_hist.group_temp][indicator_num]
-        report = f'\t{indic_sign}(id={meter_hist.meter_id})={indic_value}\'C ref:{yellow_range}\'C;{red_range}\'C'
+        indic_value = cls.get_indic_value(indicator_num,
+                                          meter_hist.temperature, meter_hist.atmo_temp, meter_hist.group_temp)
+        report = f'\t{indic_sign}(id={meter_hist.meter_id})' \
+                 f'={round(indic_value,1) if indic_value is not None else None}\'C '\
+                 f'ref:{yellow_range}\'C;{red_range}\'C'
         return report
 
     @classmethod
     def do_inform_user(cls, equip_status, status_report):
-        print(status_report)
+        txt = list(zip(*status_report))[0]  # list of first items (text) of status_report
+        with open(Cfg.report_fname_path, 'a') as f:
+            for l in txt:
+                f.write(l + '\n')
+                print(l)
 
     @classmethod
     def save_to_hist(cls, equip_hist, meters_hist_lst, readings_hist_lst):
-        logger.debug(f'equip({equip_hist.id},{equip_hist.dtime}, '
+        logger.debug(f'equip({equip_hist.equip_id},{equip_hist.dtime}, '
                      f'meters_len={len(meters_hist_lst)} readings_len={len(readings_hist_lst)}')
         Db.insert_one('Hist_equips', equip_hist)
         Db.insert_many('Hist_meters', meters_hist_lst)
@@ -180,8 +216,13 @@ class Analyzer:
     @classmethod
     def delete_readings(cls, recs):
         logger.debug(f'recs: len={len(recs)}')
+        rec_cnt = 0
         for r in recs:
-            cnt = Db.exec('delete from Readings where dtime_sec = ? and meter_id = ?', (r.dtime_sec, r.meter_id))
-            if cnt != 1:
-                logger.warning(f'delete Readings failed, cnt={cnt} for {(r.dtime_sec,r.meter_id)}')
+            cnt = Db.exec('insert into _Readings_arch select * from Readings where dtime_sec = ? and meter_id = ?',
+                          (r.dtime_sec, r.meter_id))
+            # logger.debug(f'moved {cnt} records from Readings to _Readings_arch')
+            rec_cnt += Db.exec('delete from Readings where dtime_sec = ? and meter_id = ?', (r.dtime_sec, r.meter_id))
+            # if cnt != 1:
+            #     logger.warning(f'delete Readings failed, cnt={cnt} for {(r.dtime_sec,r.meter_id)}')
+        logger.debug(f'deleted {rec_cnt} from Readings')
         return

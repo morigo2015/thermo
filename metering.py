@@ -23,12 +23,14 @@ logger = logging.getLogger('thermo.' + 'metering')
 
 
 class Cfg(Config):
-    inp_folder = f'../data/tests/for_demo/d4/'  #
+    inp_folder = f'../tmp/input_folder/'  #
     inp_fname_mask = f'*.jpg'  # 512 0909 3232 446
     csv_file = f'../tmp/metering.csv'
     log_folder = f'../tmp/res_preproc/'
     log_file = f'../tmp/debug.log'
     sync_folder = f'/home/im/mypy/thermo/GDrive-Ihorm/FLIR'
+    input_backup_folder = f'../tmp/inp_copy/'
+    need_input_backup = True
     # log_level = logging.DEBUG  # INFO DEBUG WARNING
     log_image = False
     need_sync = False  # True  # sync: run rclone, then move from .../FLIR to inp_folders
@@ -100,18 +102,18 @@ class _GroupEquip:
 
     @classmethod
     def _timeout_is_set_and_expired(cls):
-        if cls.wait_cycles_cnt == -1:  # wasn't set
-            cls.wait_cycles_cnt = Cfg.equip_grp_max_idles  # set counter
+        if cls.idle_cycles_left == -1:  # wasn't set
+            cls.idle_cycles_left = Cfg.equip_grp_max_idles  # set counter
             return False
-        cls.wait_cycles_cnt -= 1
-        if cls.wait_cycles_cnt == 0:  # was set and is expired now
-            cls.wait_cycles_cnt = -1
+        cls.idle_cycles_left -= 1
+        if cls.idle_cycles_left == 0:  # was set and is expired now
+            cls.idle_cycles_left = -1
             return True
         else:
             return False  # not expired yet
 
     @classmethod
-    def ready_to_analyze(cls, event,meter_ids=None):
+    def ready_to_analyze(cls, event, meter_ids=None):
         # return True if ready to analyze readings (new equip came, or some other cases)
         logger.debug(f'new event:{event}')
 
@@ -119,7 +121,7 @@ class _GroupEquip:
             cls.wait_cycles_cnt = -1  # reset counter since idle cycles are interrupted
             equip_ids = [Db.meter_to_equip(meter_id) for meter_id in list(set(meter_ids))]
             equip_ids_uniq = list(set(equip_ids))
-            if len(equip_ids_uniq) == 1: # normal case - only one equip on an image
+            if len(equip_ids_uniq) == 1:  # normal case - only one equip on an image
                 if cls.current_equip_id == -1:  # if first image after start
                     cls.current_equip_id = equip_ids_uniq[0]
                 if cls.current_equip_id == equip_ids_uniq[0]:
@@ -136,7 +138,7 @@ class _GroupEquip:
                 else:
                     # no old equip in image, it's supposed to be new equip
                     # new equip will be the one with max occurrences in equip_ids (non uniq list)
-                    cls.current_equip_id = max(equip_ids,key=equip_ids.count)
+                    cls.current_equip_id = max(equip_ids, key=equip_ids.count)
                     return True
 
         elif event == 'empty_dir':
@@ -233,6 +235,13 @@ def readings_to_hist():
         Db.exec('delete from Readings')
 
 
+def remove_input_files(fname_path):
+    if Cfg.need_input_backup:
+        os.makedirs(Cfg.input_backup_folder, exist_ok=True)
+        shutil.copy(fname_path, Cfg.input_backup_folder)
+    os.remove(fname_path)
+
+
 def main():
     logger.debug('metering - start')
     Debug.set_params(log_folder=Cfg.log_folder, log_image=Cfg.log_image)
@@ -251,9 +260,10 @@ def main():
                 time.sleep(Cfg.inp_timeout)  # sec
                 continue
             start = datetime.datetime.now()
-            for (files_cnt, fname_path_flir) in enumerate(files_list,1):
+            for (files_cnt, fname_path_flir) in enumerate(files_list, 1):
 
                 cnt, meter_ids = take_readings(fname_path_flir)
+                remove_input_files(fname_path_flir)
 
                 if not cnt or not len(meter_ids):
                     continue  # skip it, no mark/meters/readings here

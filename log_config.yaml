@@ -35,7 +35,7 @@ loggers:
 #  thermo.chart:
 #    level: DEBUG # WARNING #
   thermo.analyzer:
-    level: DEBUG # WARNING #
+    level: INFO # WARNING #
 #  thermo.__main__:
 #    level: INFO # WARNING #
 
