@@ -122,6 +122,11 @@ class Analyzer:
                          Status.GREEN: 'Green', Status.YELLOW: 'Yellow', Status.RED: 'Red'}
     status_colors = {Status.UNDEF: ColoredText.undef,
                      Status.GREEN: ColoredText.ok, Status.YELLOW: ColoredText.warning, Status.RED: ColoredText.critical}
+    status_markup = {Status.UNDEF: '', Status.GREEN: '', Status.YELLOW: '_', Status.RED: '*'}
+
+    @classmethod
+    def add_markup(cls, text, status):
+        return cls.status_markup[status] + text + cls.status_markup[status]
 
     @classmethod
     def make_meters_hist(cls, readings_hist_lst, equip_dtime, equip_dtime_sec, atmo_temp):
@@ -176,8 +181,8 @@ class Analyzer:
             equip_status = max(equip_hist.status_temp, equip_hist.status_atmo, equip_hist.status_group)
 
         ext_info = cls.status_ext_info(equip_hist.status_temp, equip_hist.status_atmo, equip_hist.status_group)
-        status_report = [(f'Обладнання {equip_id} - {cls.status_reps[equip_status]}{ext_info}',
-                          cls.status_colors[equip_status])]
+        txt = f'Обладнання {equip_id} - {cls.status_reps[equip_status]}{ext_info}\n'
+        status_report = cls.add_markup(txt, equip_status)
 
         if equip_status <= Status.GREEN and not Cfg.extend_report:
             return equip_status, status_report
@@ -187,7 +192,7 @@ class Analyzer:
                 continue  # no reports for atmo meter
             meter_report = cls.get_meter_report(m)
             if meter_report is not None:
-                status_report.append(meter_report)
+                status_report += meter_report
             # for i, indicator in enumerate(cls.indicator_names):
             #     m_stat = [m.status_temp, m.status_atmo, m.status_group][i]
             #     # eqp_stat = [equip_hist.status_temp, equip_hist.status_atmo, equip_hist.status_group][i]
@@ -202,10 +207,11 @@ class Analyzer:
         if m_stat <= Status.GREEN and not Cfg.extend_report:
             return None
 
-        temperature = round(meter_hist.temperature,2) if meter_hist.temperature is not None else None
-        atmo_temp = round(meter_hist.atmo_temp,2) if meter_hist.atmo_temp is not None else None
-        group_temp = round(meter_hist.group_temp,2) if meter_hist.group_temp is not None else None
+        temperature = round(meter_hist.temperature, 2) if meter_hist.temperature is not None else None
+        atmo_temp = round(meter_hist.atmo_temp, 2) if meter_hist.atmo_temp is not None else None
+        group_temp = round(meter_hist.group_temp, 2) if meter_hist.group_temp is not None else None
 
+        # build reference:
         ranges = MeterGrpInfo.get_ranges(meter_hist.meter_id)
         ref = []
         for indicator_num, indic in enumerate(cls.indicator_names):
@@ -216,23 +222,22 @@ class Analyzer:
                 ref.append(f'[межі={yellow_range};{red_range}]')
 
         ext_info = f'({cls.status_color_reps[meter_hist.status_temp]})' if Cfg.extend_report else ''
-        report_txt = f'  Місце {meter_hist.meter_id}: ' \
-                 f't={temperature}{ref[0]}{ext_info}'
+        txt = f'  Місце {meter_hist.meter_id}:\n    t={temperature}{ref[0]}{ext_info}\n'
         if atmo_temp is not None:
-            report_txt += f', t оточення={atmo_temp},різниця={round(temperature-atmo_temp,2)}' \
-                      f'{ref[1]}{ext_info}'
+            txt += f'    t оточення={atmo_temp}\n' \
+                   f'    різн_оточ={round(temperature-atmo_temp,2)}{ref[1]}{ext_info}\n'
 
-        return report_txt, cls.status_colors[m_stat]
+        return cls.add_markup(txt, m_stat)
 
     @classmethod
     def do_inform_user(cls, equip_status, status_report):
-        txt = list(zip(*status_report))[0]  # list of first items (text) of status_report
+        # txt = list(zip(*status_report))[0]  # list of first items (text) of status_report
         with open(Cfg.report_fname_path, 'a') as f:
-            for l in txt:
-                f.write(l + '\n')
-                print(l)
-        ColoredText.draw(status_report, Cfg.report_chart_path)
-        os.system(f'telegram-send -i "{Cfg.report_chart_path}"')
+            f.write(status_report)
+        print(status_report)
+        # ColoredText.draw(status_report, Cfg.report_chart_path)
+        # os.system(f'telegram-send -i "{Cfg.report_chart_path}"')
+        os.system(f'telegram-send --format markdown "{status_report}"')
 
     @classmethod
     def save_to_hist(cls, equip_hist, meters_hist_lst, readings_hist_lst):
