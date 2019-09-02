@@ -84,7 +84,10 @@ class FlirImageExtractor:
             [self.exiftool_path, '-RawThermalImageType', '-j', self.flir_img_filename])
         meta = json.loads(meta_json.decode())[0]
 
-        return meta['RawThermalImageType']
+        try:
+            return meta['RawThermalImageType']
+        except KeyError:
+            raise KeyError
 
     def get_rgb_np(self):
         """

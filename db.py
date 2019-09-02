@@ -26,9 +26,7 @@ class Db:
     ReadingsShortRecord = collections.namedtuple('ReadingsShortRecord', 'dtime, meter_id, temperature')
     ReadingsRecord = collections.namedtuple('ReadingsRecord', 'dtime, dtime_sec, meter_id, image_id, temperature')
     HistReadingsRecord = collections.namedtuple('HistReadingsRecord', 'dtime, dtime_sec, meter_id, image_id, '
-                                                                      'temperature, atmo_temp, group_temp, '
-                                                                      'status_temp, status_atmo, status_group, '
-                                                                      'equip_dtime, equip_dtime_sec')
+                                                                      'temperature, equip_dtime, equip_dtime_sec')
     HistMetersRecord = collections.namedtuple('HistMetersRecord', 'meter_id, dtime, dtime_sec, '
                                                                   'temperature, atmo_temp, group_temp, '
                                                                   'status_temp, status_atmo, status_group')
