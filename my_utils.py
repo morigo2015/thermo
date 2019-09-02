@@ -234,6 +234,29 @@ class MyMath:
         return np.degrees(angle)
 
 
+class Status:  # not subclass of Enum or IntEnum since they can't be safely extended by other members/methods
+    UNDEF = -1
+    GREEN = 0
+    YELLOW = 1
+    RED = 2
+
+    status_reps = {UNDEF: 'Невизначено', GREEN: 'OK', YELLOW: 'Увага', RED: 'Небезепечно!'}
+    status_color_reps = {UNDEF: 'Undef', GREEN: 'Green', YELLOW: 'Yellow', RED: 'Red'}
+    # status_colors = {UNDEF: ColoredText.undef,
+    #                  GREEN: ColoredText.ok, YELLOW: ColoredText.warning, RED: ColoredText.critical}
+
+    @staticmethod
+    def calc_status(value, yellow_range, red_range):
+        if value is None:
+            return Status.UNDEF
+        elif value > red_range:
+            return Status.RED
+        elif value > yellow_range:
+            return Status.YELLOW
+        else:
+            return Status.GREEN
+
+
 class Misc:
 
     @staticmethod
