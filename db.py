@@ -185,6 +185,19 @@ class Db:
             atmo_flg = None
         return atmo_flg
 
+    @classmethod
+    def load_hist_meters(cls, meter_id, start_dtime, end_dtime):
+        if start_dtime is None:
+            start_dtime = '20001122T000000'  # infinite past
+        if end_dtime is None:
+            end_dtime = '30001122T000000'  # infinite future (to be rewritten when close to expire :)
+        query = 'select * from Hist_meters ' \
+                'where meter_id = ? and (? <= dtime and dtime <= ?)' \
+                'order by dtime'
+        query_args = (meter_id, start_dtime, end_dtime)
+        hist_meters_lst = cls.select(query, query_args, Db.HistMetersRecord)
+        return hist_meters_lst
+
 
 class MeterGrpInfo:
     _meter_group = None  # dict(meter_id:group_info)

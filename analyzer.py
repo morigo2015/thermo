@@ -21,7 +21,6 @@ import itertools
 from statistics import mean
 
 from db import Db, MeterGrpInfo
-from config import Config
 from my_utils import Status
 from informer import Informer
 
@@ -49,11 +48,12 @@ class Analyzer:
             atmo = cls.get_atmo(recs, equip_id)  # atmo = average of all atmo's for this equip_id
             meters_hist_lst = cls.make_meters_hist(readings_hist_lst, equip_dtime, equip_dtime_sec, atmo)
             equip_hist = cls.make_equips_hist(equip_id, meters_hist_lst, equip_dtime, equip_dtime_sec)
-
-            Informer.inform_user(equip_hist, meters_hist_lst)
-
+            # move to *_hist from Readings.
+            # Do it before inform_user which loads all values for alert_chart from Hit_meters
             cls.save_to_hist(equip_hist, meters_hist_lst, readings_hist_lst)
             cls.delete_readings(recs)
+
+            Informer.inform_user(equip_hist, meters_hist_lst)
 
     @classmethod
     def make_readings_hist(cls, recs):
