@@ -275,6 +275,10 @@ class Misc:
     def str_to_dtime(dtime_str):
         return datetime.datetime.strptime(dtime_str, '%Y%m%dT%H%M%S')
 
+    @classmethod
+    def str_time(cls, dtime_str):
+        dt = cls.str_to_dtime(dtime_str)
+        return datetime.datetime.strftime(dt, '%H:%M:%S')
 
 if __name__ == '__main__':
     kp = KeyPoint(200, 100)

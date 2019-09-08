@@ -179,22 +179,28 @@ class Db:
         if cls._meter_equip is None:
             cls._load_meter_equip()
         try:
-            atmo_flg = cls._meter_atmo[meter_id]
+            atmo_flg = cls._meter_atmo[meter_id] == 1
         except KeyError:
             logger.error(f'Unknown meter_id={meter_id}')
             atmo_flg = None
         return atmo_flg
 
     @classmethod
-    def load_hist_meters(cls, meter_id, start_dtime, end_dtime):
+    def load_hist_meters(cls, meter_id=None, start_dtime=None, end_dtime=None):
         if start_dtime is None:
             start_dtime = '20001122T000000'  # infinite past
         if end_dtime is None:
             end_dtime = '30001122T000000'  # infinite future (to be rewritten when close to expire :)
-        query = 'select * from Hist_meters ' \
-                'where meter_id = ? and (? <= dtime and dtime <= ?)' \
-                'order by dtime'
-        query_args = (meter_id, start_dtime, end_dtime)
+        if meter_id:
+            query = 'select * from Hist_meters ' \
+                    'where meter_id = ? and (? <= dtime and dtime <= ?)' \
+                    'order by dtime'
+            query_args = (meter_id, start_dtime, end_dtime)
+        else:  # all meter_ids
+            query = 'select * from Hist_meters ' \
+                    'where ? <= dtime and dtime <= ?' \
+                    'order by dtime, meter_id'
+            query_args = (start_dtime, end_dtime)
         hist_meters_lst = cls.select(query, query_args, Db.HistMetersRecord)
         return hist_meters_lst
 
