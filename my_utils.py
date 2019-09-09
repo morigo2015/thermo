@@ -280,6 +280,12 @@ class Misc:
         dt = cls.str_to_dtime(dtime_str)
         return datetime.datetime.strftime(dt, '%H:%M:%S')
 
+    @classmethod
+    def str_readable(cls, dtime_str):
+        dt = cls.str_to_dtime(dtime_str)
+        return datetime.datetime.strftime(dt, '%Y-%m-%d %H:%M:%S')
+
+
 if __name__ == '__main__':
     kp = KeyPoint(200, 100)
     kp1 = KeyPoint(100, 200)

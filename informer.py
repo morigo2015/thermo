@@ -26,7 +26,7 @@ class Informer:
         equip_status = cls.aggregate_statuses(equip_hist.status_temp, equip_hist.status_temp, equip_hist.status_group)
 
         # summary line
-        summary = f'Обладнання {equip_hist.equip_id} - ' \
+        summary = f'{Misc.str_readable(equip_hist.dtime)} Двигун №{equip_hist.equip_id} - ' \
                   f'{cls.add_markup(Status.status_reps[equip_status], equip_status)}\n'
         Messenger.send_message(Messenger.SUMMARY_CHANNEL, summary)
         logger.debug(f'summary: {summary}')
@@ -99,6 +99,10 @@ class Informer:
         return
 
     @classmethod
+    def make_equip_heatmap(cls):
+        pass
+
+    @classmethod
     def add_markup(cls, text, status):
         status_markup = {Status.UNDEF: '', Status.GREEN: '', Status.YELLOW: '_', Status.RED: '*'}
         return status_markup[status] + text + status_markup[status]
@@ -115,8 +119,11 @@ class Messenger:
     # channels:
     SUMMARY_CHANNEL = 0
     ALERT_CHANNEL = 1
+    REPORT_CHANNEL = 2
 
-    chan_configs = {SUMMARY_CHANNEL: Cfg.config_info, ALERT_CHANNEL: Cfg.config_alert}
+    chan_configs = {SUMMARY_CHANNEL: Cfg.config_info,
+                    ALERT_CHANNEL: Cfg.config_alert,
+                    REPORT_CHANNEL: Cfg.config_alert}  # later: move to separated channel, now - on alert channel
 
     @classmethod
     def send_message(cls, channel, message):

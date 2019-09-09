@@ -172,7 +172,7 @@ def take_readings(fname_path_flir):
     for qr_mark in qr_mark_list:
         meter_records = Db.get_meters_from_db(qr_mark.code)
         if meter_records is None:
-            logger.info(f'qrs_to_readings: no meters for qr_mark {qr_mark}')
+            logger.info(f'qrs_to_readings: no equips for qr_mark {qr_mark}')
             continue
         for meter_id, offset_x, offset_y in meter_records:
             meter_ids.append(meter_id)
@@ -266,7 +266,7 @@ def main():
                 remove_input_files(fname_path_flir)
 
                 if not cnt or not len(meter_ids):
-                    continue  # skip it, no mark/meters/readings here
+                    continue  # skip it, no mark/equips/readings here
                 logger.info(f'{files_cnt} of {len(files_list)}: {fname_path_flir} readings:{cnt} '
                             f'equip:{list(set([Db.meter_to_equip(m) for m in meter_ids]))}')
 

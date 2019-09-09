@@ -23,6 +23,7 @@ from statistics import mean
 from db import Db, MeterGrpInfo
 from my_utils import Status
 from informer import Informer
+from reporter import Reporter
 
 logger = logging.getLogger('thermo.' + 'analyzer')
 
@@ -42,18 +43,21 @@ class Analyzer:
             logger.warning(f'More than one equip_id in Readings: {cls.equip_recs_dict.keys()}')
 
         for equip_id, recs in cls.equip_recs_dict.items():
-            logger.debug(f'equip_id={equip_id}, meters set={list(set([r.meter_id for r in recs]))}')
+            logger.debug(f'equip_id={equip_id}, equips set={list(set([r.meter_id for r in recs]))}')
 
             readings_hist_lst, equip_dtime, equip_dtime_sec = cls.make_readings_hist(recs)
             atmo = cls.get_atmo(recs, equip_id)  # atmo = average of all atmo's for this equip_id
             meters_hist_lst = cls.make_meters_hist(readings_hist_lst, equip_dtime, equip_dtime_sec, atmo)
-            equip_hist = cls.make_equips_hist(equip_id, meters_hist_lst, equip_dtime, equip_dtime_sec)
+            equip_hist, new_cycle_started_flg = cls.make_equips_hist(equip_id, meters_hist_lst,
+                                                                     equip_dtime, equip_dtime_sec)
             # move to *_hist from Readings.
             # Do it before inform_user which loads all values for alert_chart from Hit_meters
             cls.save_to_hist(equip_hist, meters_hist_lst, readings_hist_lst)
             cls.delete_readings(recs)
 
             Informer.inform_user(equip_hist, meters_hist_lst)
+            if new_cycle_started_flg:
+                Reporter.send_equip_heatmap()
 
     @classmethod
     def make_readings_hist(cls, recs):
@@ -75,7 +79,7 @@ class Analyzer:
         # calculate atmo for list of readings (of the same equip_id)
         atmo_temps = [r.temperature for r in recs if Db.meter_is_atmo(r.meter_id)]
         if not len(atmo_temps):
-            logger.warning(f'there is no atmo meter for equip {equip_id} in meters:{[r.meter_id for r in recs]}')
+            logger.warning(f'there is no atmo meter for equip {equip_id} in equips:{[r.meter_id for r in recs]}')
             return None
         return mean(atmo_temps)
 
@@ -92,7 +96,7 @@ class Analyzer:
 
     @classmethod
     def make_meters_hist(cls, readings_hist_lst, equip_dtime, equip_dtime_sec, atmo_temp):
-        # group by meters and create list of records for meter_hist
+        # group by equips and create list of records for meter_hist
         readings_hist_lst = sorted(readings_hist_lst, key=lambda r: r.meter_id)
         meters_recs_dict = {meter_id: list(recs)
                             for meter_id, recs in itertools.groupby(readings_hist_lst, key=lambda r: r.meter_id)}
@@ -114,9 +118,31 @@ class Analyzer:
         status_temp = max([r.status_temp for r in meters_hist_lst])
         status_atmo = max([r.status_atmo for r in meters_hist_lst])
         status_group = max([r.status_group for r in meters_hist_lst])
+        cycle_dtime, new_cycle_started_flg = cls.get_cycle_dtime(equip_id, equip_dtime)
         equips_hist = Db.HistEquipsRecord(equip_id, equip_dtime, equip_dtime_sec,
-                                          status_temp, status_atmo, status_group)
-        return equips_hist
+                                          status_temp, status_atmo, status_group, cycle_dtime)
+        return equips_hist, new_cycle_started_flg
+
+    @classmethod
+    def get_cycle_dtime(cls, equip_id, equip_dtime) -> (str,bool):
+        #  return: (current cycle start_dtime, new_cycle_started_flag)
+        # cycle is a sequential records in Hist_equip where no equip_id is repeating
+        # as soon as equip_id is repeated - we start new cycle.
+        # cycle_dtime is dtime when current cycle (related to the record in Hist_equips) started
+        max_cycle_dtime = Db.select('select max(cycle_dtime) from Hist_equips',
+                                    (), Db.OneValueRecord, empty_ok=True)[0].value
+        if max_cycle_dtime is None:  # empty table
+            return equip_dtime, True
+        equip_lst = [r.equip_id for r in Db.select('select * from Hist_equips where cycle_dtime = ?',
+                                                   (max_cycle_dtime,), Db.HistEquipsRecord, empty_ok=True)]
+        if not len(equip_lst):
+            logger.error(f'equip_lst is empty. equip_id={equip_id} max_cycle_dtime={max_cycle_dtime}')
+            return equip_dtime, True
+
+        if equip_id not in equip_lst:  # cycle is still continuing
+            return max_cycle_dtime, False
+        else:  # equip_id repeated - start new cycle
+            return equip_dtime, True
 
     @classmethod
     def save_to_hist(cls, equip_hist, meters_hist_lst, readings_hist_lst):
@@ -138,4 +164,3 @@ class Analyzer:
                                (r.dtime_sec, r.meter_id))
         logger.debug(f'deleted {rec_cnt} from Readings')
         return
-

@@ -31,7 +31,7 @@ class Db:
                                                                   'temperature, atmo_temp, group_temp, '
                                                                   'status_temp, status_atmo, status_group')
     HistEquipsRecord = collections.namedtuple('HistEquipRecord', 'equip_id, dtime, dtime_sec, '
-                                                                 'status_temp, status_atmo, status_group')
+                                                                 'status_temp, status_atmo, status_group, cycle_dtime')
     OneValueRecord = collections.namedtuple('OneValueRecord', 'value')
     MeterEquipRecord = collections.namedtuple('MeterEquipRecord', 'meter_id, atmo_flg, equip_id')
     MeterGroupRecord = collections.namedtuple('MeterGroupRecord', 'meter_id, group_id, temp_yellow, temp_red, '
@@ -111,10 +111,10 @@ class Db:
         cls.cur.execute('select * from Meters where mark_id=?', (mark_id,))
         result = cls.cur.fetchall()
         if not len(result):
-            logger.error(f'Error:: No meters in db for mark_id = {mark_id} (code {qr_code}) !!!')
+            logger.error(f'Error:: No equips in db for mark_id = {mark_id} (code {qr_code}) !!!')
             return None
         meters = [(rec["meter_id"], rec["offset_x"], rec["offset_y"]) for rec in result]
-        logger.info(f'Get meters from db: code={qr_code},  mark_id={mark_id}, meters={meters}')
+        logger.info(f'Get equips from db: code={qr_code},  mark_id={mark_id}, meters={meters}')
         return meters
 
     @classmethod

@@ -38,6 +38,9 @@ loggers:
     level: INFO # WARNING #
   thermo.informer:
     level: DEBUG # WARNING #
+  thermo.reporter:
+    level: DEBUG # WARNING #
+
 #  thermo.__main__:
 #    level: INFO # WARNING #
 
