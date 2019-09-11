@@ -132,12 +132,12 @@ class Analyzer:
         max_cycle_dtime = Db.select('select max(cycle_dtime) from Hist_equips',
                                     (), Db.OneValueRecord, empty_ok=True)[0].value
         if max_cycle_dtime is None:  # empty table
-            return equip_dtime, True
+            return equip_dtime, False
         equip_lst = [r.equip_id for r in Db.select('select * from Hist_equips where cycle_dtime = ?',
                                                    (max_cycle_dtime,), Db.HistEquipsRecord, empty_ok=True)]
         if not len(equip_lst):
             logger.error(f'equip_lst is empty. equip_id={equip_id} max_cycle_dtime={max_cycle_dtime}')
-            return equip_dtime, True
+            return equip_dtime, False
 
         if equip_id not in equip_lst:  # cycle is still continuing
             return max_cycle_dtime, False

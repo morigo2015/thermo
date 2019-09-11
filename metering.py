@@ -33,7 +33,7 @@ class Cfg(Config):
     need_input_backup = True
     # log_level = logging.DEBUG  # INFO DEBUG WARNING
     log_image = False
-    need_sync = False  # True  # sync: run rclone, then move from .../FLIR to inp_folders
+    need_sync = True  # True  # sync: run rclone, then move from .../FLIR to inp_folders
     # need_csv = False  # save temperature to csv file
     sync_cmd = f'rclone move remote: {os.path.split(sync_folder)[0]}'  # remove /FLIR, it will be added by rclone
     purge_reading_flg = False  # readings -> readings_hist

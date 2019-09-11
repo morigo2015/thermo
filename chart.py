@@ -5,8 +5,10 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
 from matplotlib.dates import DateFormatter
+import matplotlib as mpl
 
 from pandas.plotting import register_matplotlib_converters
+
 register_matplotlib_converters()
 
 from db import Db
@@ -58,15 +60,22 @@ class Chart:
         diff_plot, = ax2.plot(dtime, delta_atmo, color=color, linestyle=linestyle_diff, marker='.',
                               label=f'Різниця з оточ.')
         # ax2.legend(loc='best') # 'upper right')
-        ax2.legend(handles=(temp_plot, atmo_plot, diff_plot))
+        ax2.legend(handles=(temp_plot, atmo_plot, diff_plot),loc='upper left')
 
         # set range lines:
+        # if ranges is not None:
+        #     temp_yellow, temp_red, atmo_yellow, atmo_red, _, _ = ranges
+        #     ax1.axhline(temp_yellow, color='tab:orange', linestyle=linestyle_temp, linewidth=0.5)
+        #     ax1.axhline(temp_red, color='tab:red', linestyle=linestyle_temp, linewidth=0.5)
+        #     ax2.axhline(atmo_yellow, color='tab:orange', linestyle=linestyle_diff, linewidth=0.5)
+        #     ax2.axhline(atmo_red, color='tab:red', linestyle=linestyle_diff, linewidth=0.5)
+
         if ranges is not None:
             temp_yellow, temp_red, atmo_yellow, atmo_red, _, _ = ranges
-            ax1.axhline(temp_yellow, color='tab:orange', linestyle=linestyle_temp, linewidth=0.5)
-            ax1.axhline(temp_red, color='tab:red', linestyle=linestyle_temp, linewidth=0.5)
-            ax2.axhline(atmo_yellow, color='tab:orange', linestyle=linestyle_diff, linewidth=0.5)
-            ax2.axhline(atmo_red, color='tab:red', linestyle=linestyle_diff, linewidth=0.5)
+            ymin, ymax = ax1.get_ylim()
+            ax1.axhspan(ymin, temp_yellow, color='g', alpha=0.1)  # hatch='+',
+            ax1.axhspan(temp_yellow, temp_red, color='y', alpha=0.1)
+            ax1.axhspan(temp_red, ymax, color='r', alpha=0.1)
 
         fig.tight_layout()
         fig.savefig(chart_fname_path)
@@ -75,47 +84,24 @@ class Chart:
         plt.close()
 
     @classmethod
-    def _prepare_heatmap(cls, data, row_labels, col_labels, ax=None,
-                        cbar_kw={}, cbarlabel="", **kwargs):
-        """
-        Create a heatmap from a numpy array and two lists of labels.
+    def equip_heatmap(cls, statuses, equips, dates, heatmap_fname_path, show=False):
 
-        Parameters
-        ----------
-        data
-            A 2D numpy array of shape (N, M).
-        row_labels
-            A list or array of length N with the labels for the rows.
-        col_labels
-            A list or array of length M with the labels for the columns.
-        ax
-            A `matplotlib.axes.Axes` instance to which the heatmap is plotted.  If
-            not provided, use current axes or create a new one.  Optional.
-        cbar_kw
-            A dictionary with arguments to `matplotlib.Figure.colorbar`.  Optional.
-        cbarlabel
-            The label for the colorbar.  Optional.
-        **kwargs
-            All other arguments are forwarded to `imshow`.
-        """
-
-        if not ax:
-            ax = plt.gca()
-
+        fig, ax = plt.subplots()
+        ax.set_title('Стан обладнання\n')
         # Plot the heatmap
-        im = ax.imshow(data, **kwargs)
 
-        # Create colorbar
-        # cbar = ax.figure.colorbar(im, ax=ax, **cbar_kw)
-        # cbar.ax.set_ylabel(cbarlabel, rotation=-90, va="bottom")
-        cbar = None
+        cmap = mpl.colors.ListedColormap(['gray', 'green', 'yellow', 'red'])
+
+        bounds = [-1.5, -0.5, 0.5, 1.5, 2.5]
+        norm = mpl.colors.BoundaryNorm(bounds, cmap.N)
+        im = ax.imshow(statuses, cmap=cmap, norm=norm)
 
         # We want to show all ticks...
-        ax.set_xticks(np.arange(data.shape[1]))
-        ax.set_yticks(np.arange(data.shape[0]))
+        ax.set_xticks(np.arange(statuses.shape[1]))
+        ax.set_yticks(np.arange(statuses.shape[0]))
         # ... and label them with the respective list entries.
-        ax.set_xticklabels(col_labels)
-        ax.set_yticklabels(row_labels)
+        ax.set_xticklabels(dates)
+        ax.set_yticklabels(equips)
 
         # Let the horizontal axes labeling appear on top.
         ax.tick_params(top=False, bottom=True, labeltop=False, labelbottom=True)
@@ -128,20 +114,10 @@ class Chart:
         # for edge, spine in ax.spines.items():
         #     spine.set_visible(False)
 
-        ax.set_xticks(np.arange(data.shape[1] + 1) - .5, minor=True)
-        ax.set_yticks(np.arange(data.shape[0] + 1) - .5, minor=True)
-        ax.grid(which="minor", color="black", linestyle='-', linewidth=1)
+        ax.set_xticks(np.arange(statuses.shape[1] + 1) - .5, minor=True)
+        ax.set_yticks(np.arange(statuses.shape[0] + 1) - .5, minor=True)
+        ax.grid(which="minor", color="w", linestyle='-', linewidth=1)
         # ax.tick_params(which="minor", bottom=False, left=False)
-
-        return im, cbar
-
-    @classmethod
-    def equip_heatmap(cls, statuses, equips, dates, heatmap_fname_path, show=False):
-
-        fig, ax = plt.subplots()
-        im, cbar = cls._prepare_heatmap(statuses, equips, dates, ax=ax,
-                           cmap="YlGn", cbarlabel="harvest [t/year]")
-        # texts = annotate_heatmap(im, valfmt="{x:.1f} t")
 
         fig.tight_layout()
         fig.savefig(heatmap_fname_path)
@@ -185,13 +161,10 @@ if __name__ == '__main__':
         return readings
 
 
-    def chart_meter(name, meters, start_dtime, end_dtime):
-        pass
-
-
     def main():
         ds_name = 'd4'
         logger.debug(f'data set name={ds_name}')
         # Chart.meter_chart(*data_sets[ds_name])
+
 
     main()
